@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, parse } from 'node:path';
 import { BrowserManager } from '@kevintyj/pss-browser';
 import { StaticServer } from '@kevintyj/pss-server';
@@ -26,14 +26,17 @@ export class PrerenderEngine {
 			// Step 2: Initialize browser
 			await this.initializeBrowser();
 
-			// Step 3: Get routes to process
+			// Step 3: Copy static assets to output directory
+			await this.copyStaticAssets();
+
+			// Step 4: Get routes to process
 			const routes = await this.getRoutes();
 			console.log(`📄 Found ${routes.length} routes to process`);
 
-			// Step 4: Process routes with concurrency control
+			// Step 5: Process routes with concurrency control
 			const snapshots = await this.processRoutes(routes);
 
-			// Step 5: Write output files
+			// Step 6: Write output files (HTML files will overwrite copies)
 			await this.writeOutputFiles(snapshots);
 
 			const crawlTime = Date.now() - startTime;
@@ -90,6 +93,26 @@ export class PrerenderEngine {
 		await this.browser.launch();
 	}
 
+	private async copyStaticAssets(): Promise<void> {
+		console.log(`📁 Copying static assets from ${this.config.serveDir} to ${this.config.outDir}`);
+
+		// Ensure output directory exists
+		mkdirSync(this.config.outDir, { recursive: true });
+
+		// Check if source directory exists
+		if (!existsSync(this.config.serveDir)) {
+			throw new Error(`Source directory ${this.config.serveDir} does not exist`);
+		}
+
+		// Copy all files from source to output directory
+		cpSync(this.config.serveDir, this.config.outDir, {
+			recursive: true,
+			force: true, // Overwrite existing files
+		});
+
+		console.log('✅ Static assets copied successfully');
+	}
+
 	private async getRoutes(): Promise<string[]> {
 		const routes = [...this.config.routes];
 
@@ -98,7 +121,131 @@ export class PrerenderEngine {
 			routes.unshift('/');
 		}
 
+		// If crawlLinks is enabled, discover routes by crawling
+		if (this.config.crawlLinks) {
+			console.log('🕷️  Crawling links to discover routes...');
+			const crawledRoutes = await this.crawlLinks(routes);
+
+			// Merge crawled routes with existing routes, removing duplicates
+			const allRoutes = [...new Set([...routes, ...crawledRoutes])];
+
+			console.log(`🔗 Discovered ${crawledRoutes.length} additional routes through crawling`);
+			return allRoutes;
+		}
+
 		return routes;
+	}
+
+	private async crawlLinks(seedRoutes: string[]): Promise<string[]> {
+		const crawlConfig =
+			typeof this.config.crawlLinks === 'object' ? this.config.crawlLinks : { depth: 3, concurrency: 3 };
+		const maxDepth = crawlConfig.depth;
+		const concurrency = crawlConfig.concurrency;
+
+		const visited = new Set<string>();
+		const discovered = new Set<string>();
+		const queue: Array<{ route: string; depth: number }> = [];
+
+		// Initialize queue with seed routes
+		seedRoutes.forEach(route => {
+			const normalizedRoute = this.normalizeRoute(route);
+			queue.push({ route: normalizedRoute, depth: 0 });
+			visited.add(normalizedRoute);
+		});
+
+		const limit = pLimit(concurrency);
+
+		while (queue.length > 0) {
+			const batch = queue.splice(0, concurrency);
+
+			const promises = batch.map(({ route, depth }) =>
+				limit(async () => {
+					if (depth >= maxDepth) return;
+
+					try {
+						const url = this.resolveUrl(route);
+						const snapshot = await this.browser?.takeSnapshot({
+							url,
+							stripMode: 'none',
+							extraDelay: this.config.extraDelay,
+							retry: this.config.retry,
+							retryDelay: this.config.retryDelay,
+						});
+
+						if (snapshot) {
+							const links = this.extractLinksFromHtml(snapshot.html, url);
+
+							for (const link of links) {
+								const normalizedLink = this.normalizeRoute(link);
+
+								if (!visited.has(normalizedLink) && !this.isExcluded(normalizedLink)) {
+									visited.add(normalizedLink);
+									discovered.add(normalizedLink);
+									queue.push({ route: normalizedLink, depth: depth + 1 });
+								}
+							}
+						}
+					} catch (error) {
+						console.warn(`⚠️  Failed to crawl ${route}:`, error);
+					}
+				})
+			);
+
+			await Promise.all(promises);
+		}
+
+		return Array.from(discovered);
+	}
+
+	private extractLinksFromHtml(html: string, baseUrl: string): string[] {
+		const links: string[] = [];
+		const base = new URL(baseUrl);
+
+		// Extract links from anchor tags
+		const anchorRegex = /<a[^>]*href=["']([^"']+)["'][^>]*>/gi;
+		let match: RegExpExecArray | null;
+
+		match = anchorRegex.exec(html);
+		while (match !== null) {
+			const href = match[1];
+
+			try {
+				const absoluteUrl = new URL(href, base);
+
+				// Only include links from the same origin
+				if (absoluteUrl.origin === base.origin) {
+					links.push(absoluteUrl.pathname);
+				}
+			} catch (_error) {
+				// Skip invalid URLs
+			}
+
+			match = anchorRegex.exec(html);
+		}
+
+		return links;
+	}
+
+	private normalizeRoute(route: string): string {
+		// Remove query parameters and fragments
+		const url = new URL(route, 'http://example.com');
+		let pathname = url.pathname;
+
+		// Remove trailing slash except for root
+		if (pathname.length > 1 && pathname.endsWith('/')) {
+			pathname = pathname.slice(0, -1);
+		}
+
+		return pathname;
+	}
+
+	private isExcluded(route: string): boolean {
+		return this.config.exclude.some(pattern => {
+			if (pattern instanceof RegExp) {
+				return pattern.test(route);
+			}
+			return route.includes(pattern);
+		});
 	}
 
 	private async processRoutes(routes: string[]): Promise<SnapshotResult[]> {

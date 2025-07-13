@@ -7,9 +7,9 @@
 	"scripts": {
 		"build": "pnpm --recursive run build",
 		"build:solid": "rimraf dist && pnpm --filter vite-template-solid exec -- vite build --outDir=../../dist --emptyOutDir",
-		"dev": "concurrently --kill-others --prefix-colors cyan,magenta --names serve,pss \"pnpm run dev:serve\" \"pnpm run dev:pss\"",
+		"dev": "pnpm --filter @kevintyj/pss dev --serve-dir=../../dist --out-dir=../../output",
 		"dev:serve": "serve dist -p 3000",
-		"dev:pss": "sleep 2 && pnpm --filter @kevintyj/pss dev --serve-dir=../../dist --server-port=3000 --start-server=false",
+		"dev:pss": "sleep 2 && pnpm --filter @kevintyj/pss dev --serve-dir=../../dist --out-dir=../../output --server-port=3000 --start-server=false",
 		"prepare": "pnpm run build",
 		"test": "echo \"Error: no test specified\" && exit 1",
 		"format": "biome format --write .",
