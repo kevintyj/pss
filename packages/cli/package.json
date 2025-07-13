@@ -1,0 +1,44 @@
+{
+	"name": "@kevintyj/pss-cli",
+	"version": "1.0.0",
+	"description": "Command-line interface for PSS",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsx src/index.ts",
+		"format": "biome format --write .",
+		"lint": "biome lint .",
+		"check": "biome check ."
+	},
+	"dependencies": {
+		"@kevintyj/pss-config": "workspace:*",
+		"@kevintyj/pss-core": "workspace:*",
+		"@kevintyj/pss-types": "workspace:*",
+		"yargs": "^18.0.0"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.13",
+		"@types/yargs": "^17.0.33",
+		"tsx": "^4.20.3",
+		"typescript": "^5.8.3"
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"keywords": [
+		"cli",
+		"command-line",
+		"interface"
+	],
+	"author": "",
+	"license": "ISC"
+}

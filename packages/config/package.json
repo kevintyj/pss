@@ -1,0 +1,41 @@
+{
+	"name": "@kevintyj/pss-config",
+	"version": "1.0.0",
+	"description": "Configuration loading and validation for PSS",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsx src/index.ts",
+		"format": "biome format --write .",
+		"lint": "biome lint .",
+		"check": "biome check ."
+	},
+	"dependencies": {
+		"zod": "^4.0.5",
+		"@kevintyj/pss-types": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.13",
+		"tsx": "^4.20.3",
+		"typescript": "^5.8.3"
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"keywords": [
+		"config",
+		"configuration",
+		"validation"
+	],
+	"author": "",
+	"license": "ISC"
+}

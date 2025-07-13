@@ -1,0 +1,50 @@
+{
+	"name": "@kevintyj/pss",
+	"version": "1.0.0",
+	"description": "PSS (Prerendered Static Site Generator) - A fast, flexible prerendering tool",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"build": "pnpm --recursive run build",
+		"build:solid": "rimraf dist && pnpm --filter vite-template-solid exec -- vite build --outDir=../../dist --emptyOutDir",
+		"dev": "concurrently --kill-others --prefix-colors cyan,magenta --names serve,pss \"pnpm run dev:serve\" \"pnpm run dev:pss\"",
+		"dev:serve": "serve dist -p 3000",
+		"dev:pss": "sleep 2 && pnpm --filter @kevintyj/pss dev --serve-dir=../../dist --server-port=3000 --start-server=false",
+		"prepare": "pnpm run build",
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"format": "biome format --write .",
+		"format:check": "biome format .",
+		"lint": "biome lint .",
+		"lint:fix": "biome lint --write .",
+		"check": "biome check .",
+		"check:fix": "biome check --write .",
+		"ci": "biome ci ."
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"packageManager": "pnpm@10.12.1",
+	"devDependencies": {
+		"@biomejs/biome": "^2.1.1",
+		"@types/node": "^24.0.13",
+		"@types/serve-static": "^1.15.8",
+		"@types/yargs": "^17.0.33",
+		"concurrently": "^9.2.0",
+		"esbuild": "^0.25.6",
+		"get-port": "^7.1.0",
+		"playwright": "^1.54.1",
+		"rimraf": "^6.0.1",
+		"serve": "^14.2.4",
+		"serve-static": "^2.2.0",
+		"ts-node": "^10.9.2",
+		"tsx": "^4.20.3",
+		"typescript": "^5.8.3",
+		"undici": "^7.11.0",
+		"xmlbuilder2": "^3.1.1",
+		"yargs": "^18.0.0"
+	},
+	"dependencies": {
+		"p-limit": "^6.2.0",
+		"zod": "^4.0.5"
+	}
+}

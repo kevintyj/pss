@@ -1,0 +1,71 @@
+{
+	"name": "@kevintyj/pss",
+	"version": "1.0.0",
+	"description": "Prerendered Static Site Generator",
+	"type": "module",
+	"main": "dist/index.js",
+	"bin": {
+		"pss": "./dist/index.js"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		},
+		"./types": {
+			"import": "./dist/types/index.js",
+			"types": "./dist/types/index.d.ts"
+		},
+		"./config": {
+			"import": "./dist/config/index.js",
+			"types": "./dist/config/index.d.ts"
+		},
+		"./browser": {
+			"import": "./dist/browser/index.js",
+			"types": "./dist/browser/index.d.ts"
+		},
+		"./server": {
+			"import": "./dist/server/index.js",
+			"types": "./dist/server/index.d.ts"
+		},
+		"./core": {
+			"import": "./dist/core/index.js",
+			"types": "./dist/core/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsx src/index.ts",
+		"format": "biome format --write .",
+		"lint": "biome lint .",
+		"check": "biome check ."
+	},
+	"dependencies": {
+		"@kevintyj/pss-types": "workspace:*",
+		"@kevintyj/pss-config": "workspace:*",
+		"@kevintyj/pss-browser": "workspace:*",
+		"@kevintyj/pss-server": "workspace:*",
+		"@kevintyj/pss-core": "workspace:*",
+		"@kevintyj/pss-cli": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.13",
+		"@types/serve-static": "^1.15.8",
+		"@types/yargs": "^17.0.33",
+		"tsx": "^4.20.3",
+		"typescript": "^5.8.3"
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"keywords": [
+		"static-site",
+		"prerendering",
+		"playwright",
+		"html",
+		"generator"
+	],
+	"author": "",
+	"license": "ISC"
+}

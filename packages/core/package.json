@@ -1,0 +1,44 @@
+{
+	"name": "@kevintyj/pss-core",
+	"version": "1.0.0",
+	"description": "Core prerendering logic for PSS",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsx src/index.ts",
+		"format": "biome format --write .",
+		"lint": "biome lint .",
+		"check": "biome check ."
+	},
+	"dependencies": {
+		"p-limit": "^6.2.0",
+		"@kevintyj/pss-types": "workspace:*",
+		"@kevintyj/pss-config": "workspace:*",
+		"@kevintyj/pss-browser": "workspace:*",
+		"@kevintyj/pss-server": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.13",
+		"tsx": "^4.20.3",
+		"typescript": "^5.8.3"
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"keywords": [
+		"core",
+		"prerendering",
+		"orchestration"
+	],
+	"author": "",
+	"license": "ISC"
+}
