@@ -239,4 +239,4 @@ PSS is built as a modular monorepo:
 
 ## License
 
-ISC 
+BSD-3-Clause 

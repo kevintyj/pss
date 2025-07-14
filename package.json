@@ -20,9 +20,6 @@
 		"check:fix": "biome check --write .",
 		"ci": "biome ci ."
 	},
-	"keywords": [],
-	"author": "",
-	"license": "ISC",
 	"packageManager": "pnpm@10.12.1",
 	"devDependencies": {
 		"@biomejs/biome": "^2.1.1",
@@ -46,5 +43,14 @@
 	"dependencies": {
 		"p-limit": "^6.2.0",
 		"zod": "^4.0.5"
-	}
+	},
+	"workspaces": [
+		"packages/*"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/kevintyj/pss"
+	},
+	"author": "Kevin Taeyoon Jin <hello@kevintyj.com>",
+	"license": "BSD-3-Clause"
 }

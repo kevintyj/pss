@@ -8,6 +8,7 @@ export interface ServerOptions {
 	serveDir: string;
 	port?: number;
 	host?: string;
+	verbose?: boolean;
 }
 
 export interface ServerInfo {
@@ -20,14 +21,32 @@ export interface ServerInfo {
 export class StaticServer {
 	private server: Server | null = null;
 	private options: ServerOptions;
+	private verbose: boolean;
 
 	constructor(options: ServerOptions) {
 		this.options = options;
+		this.verbose = options.verbose || false;
+	}
+
+	// Normal logging (always shown)
+	private log(message: string) {
+		console.log(message);
+	}
+
+	// Verbose logging (only shown when verbose is true)
+	private verboseLog(message: string) {
+		if (this.verbose) {
+			console.log(`[VERBOSE] ${message}`);
+		}
 	}
 
 	async start(): Promise<ServerInfo> {
 		const host = this.options.host || 'localhost';
 		const port = this.options.port || (await getPort({ port: 3000 }));
+
+		this.verboseLog(`Starting server with options: ${JSON.stringify(this.options, null, 2)}`);
+		this.verboseLog(`Server directory: ${this.options.serveDir}`);
+		this.verboseLog(`Directory exists: ${existsSync(this.options.serveDir)}`);
 
 		// Create static file server
 		const serve = serveStatic(this.options.serveDir, {
@@ -47,9 +66,14 @@ export class StaticServer {
 
 		// Create HTTP server with SPA fallback
 		this.server = createServer((req, res) => {
+			if (this.verbose) {
+				this.verboseLog(`Request: ${req.method} ${req.url}`);
+			}
+
 			serve(req, res, err => {
 				if (err) {
 					console.error(`Server error for ${req.url}:`, err);
+					this.verboseLog(`Server error details: ${err.message}`);
 					res.statusCode = 404;
 					res.end('File not found');
 				} else {
@@ -71,8 +95,10 @@ export class StaticServer {
 		});
 
 		const url = `http://${host}:${port}`;
-		console.log(`✓ Static server running at ${url}`);
-		console.log(`✓ Serving files from: ${this.options.serveDir}`);
+		this.log(`✓ Static server running at ${url}`);
+		this.log(`✓ Serving files from: ${this.options.serveDir}`);
+		this.verboseLog(`Server bound to: ${host}:${port}`);
+		this.verboseLog(`Server process ID: ${process.pid}`);
 
 		return {
 			server: this.server,
@@ -83,56 +109,55 @@ export class StaticServer {
 	}
 
 	private serveSpaFallback(req: any, res: any): void {
-		// Check if this is a request for a static asset
-		const url = req.url || '';
-		const isStaticAsset = url.includes('.') && !url.endsWith('.html');
+		const url = req.url || '/';
 
-		if (isStaticAsset) {
-			// For static assets that don't exist, return 404
+		// Skip API routes and files with extensions
+		if (url.startsWith('/api/') || url.includes('.')) {
+			this.verboseLog(`Skipping SPA fallback for: ${url}`);
 			res.statusCode = 404;
 			res.end('File not found');
 			return;
 		}
 
-		// For HTML routes, serve index.html (SPA fallback)
+		// Serve index.html for SPA routes
 		const indexPath = join(this.options.serveDir, 'index.html');
-
 		if (existsSync(indexPath)) {
+			this.verboseLog(`SPA fallback: serving index.html for ${url}`);
 			try {
-				const indexContent = readFileSync(indexPath, 'utf8');
-				res.statusCode = 200;
+				const content = readFileSync(indexPath, 'utf8');
 				res.setHeader('Content-Type', 'text/html; charset=utf-8');
 				res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 				res.setHeader('Pragma', 'no-cache');
 				res.setHeader('Expires', '0');
-				res.end(indexContent);
+				res.statusCode = 200;
+				res.end(content);
 			} catch (error) {
-				console.error('Error serving index.html:', error);
+				this.verboseLog(`Error reading index.html: ${error}`);
 				res.statusCode = 500;
 				res.end('Internal Server Error');
 			}
 		} else {
+			this.verboseLog(`No index.html found for SPA fallback: ${indexPath}`);
 			res.statusCode = 404;
 			res.end('File not found');
 		}
 	}
 
 	async stop(): Promise<void> {
-		if (!this.server) {
-			return;
-		}
-
-		return new Promise<void>((resolve, reject) => {
-			this.server?.close(err => {
-				if (err) {
-					reject(err);
-				} else {
-					console.log('✓ Static server stopped');
-					this.server = null;
-					resolve();
-				}
+		if (this.server) {
+			await new Promise<void>((resolve, reject) => {
+				this.server?.close((err?: Error) => {
+					if (err) {
+						reject(err);
+					} else {
+						resolve();
+					}
+				});
 			});
-		});
+			this.server = null;
+			this.log('✓ Static server stopped');
+			this.verboseLog('Server shutdown complete');
+		}
 	}
 
 	isRunning(): boolean {
@@ -140,7 +165,7 @@ export class StaticServer {
 	}
 }
 
-// Helper function to create and start server
+// Helper function to create and start a server
 export async function createStaticServer(options: ServerOptions): Promise<ServerInfo> {
 	const server = new StaticServer(options);
 	return await server.start();

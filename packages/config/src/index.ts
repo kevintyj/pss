@@ -145,7 +145,13 @@ export function mergeConfigs(baseConfig: Partial<PSSConfig>, overrideConfig: Par
 		if (value !== undefined) {
 			if (key === 'exclude' && Array.isArray(value) && Array.isArray(merged.exclude)) {
 				// Merge exclude patterns
-				merged.exclude = [...merged.exclude, ...value];
+				merged.exclude = [...merged.exclude, ...value] as any;
+			} else if (key === 'blockDomains' && Array.isArray(value) && Array.isArray(merged.blockDomains)) {
+				// Merge block domains
+				merged.blockDomains = [...(merged.blockDomains || []), ...value] as string[];
+			} else if (key === 'routeConfig' && Array.isArray(value) && Array.isArray(merged.routeConfig)) {
+				// Merge route configurations
+				merged.routeConfig = [...(merged.routeConfig || []), ...value] as any;
 			} else if (key === 'nonHtml' && typeof value === 'object' && typeof merged.nonHtml === 'object') {
 				// Merge nonHtml options
 				merged.nonHtml = { ...merged.nonHtml, ...value };

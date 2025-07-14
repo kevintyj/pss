@@ -17,7 +17,6 @@ pss/
 │   ├── browser/              # Browser automation with Playwright
 │   ├── core/                 # Core prerendering logic
 │   └── cli/                  # CLI interface
-├── apps/
 │   └── pss/                  # Main application entry point
 ├── biome.json                # Biome configuration (linting/formatting)
 ├── pnpm-workspace.yaml       # pnpm workspace configuration
@@ -106,6 +105,7 @@ interface PSSConfig {
   concurrency: number;       // Number of concurrent pages to process
   stripMode: 'none' | 'meta' | 'head'; // HTML stripping mode
   flatOutput: boolean;       // Use flat file structure vs nested
+  crawlSpecialProtocols: boolean; // Enable crawling of mailto:, tel:, etc. links
   extraDelay: number;        // Extra delay before taking snapshots
   retry: number;             // Number of retry attempts
   // ... and many more options

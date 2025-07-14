@@ -20,6 +20,7 @@
 	},
 	"dependencies": {
 		"p-limit": "^6.2.0",
+		"fast-xml-parser": "^4.4.0",
 		"@kevintyj/pss-types": "workspace:*",
 		"@kevintyj/pss-config": "workspace:*",
 		"@kevintyj/pss-browser": "workspace:*",
@@ -40,5 +41,5 @@
 		"orchestration"
 	],
 	"author": "",
-	"license": "ISC"
+	"license": "BSD-3-Clause"
 }

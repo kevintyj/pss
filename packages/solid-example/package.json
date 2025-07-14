@@ -9,7 +9,7 @@
 		"build": "vite build",
 		"serve": "vite preview"
 	},
-	"license": "MIT",
+	"license": "BSD-3-Clause",
 	"devDependencies": {
 		"typescript": "^5.7.2",
 		"vite": "^6.0.0",

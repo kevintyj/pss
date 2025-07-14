@@ -1,10 +1,13 @@
 {
 	"name": "@kevintyj/pss-cli",
 	"version": "1.0.0",
-	"description": "Command-line interface for PSS",
+	"description": "Prerendered Static Site Generator - Fast, flexible prerendering tool with CLI",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
+	"bin": {
+		"pss": "./dist/index.js"
+	},
 	"exports": {
 		".": {
 			"import": "./dist/index.js",
@@ -22,6 +25,8 @@
 		"@kevintyj/pss-config": "workspace:*",
 		"@kevintyj/pss-core": "workspace:*",
 		"@kevintyj/pss-types": "workspace:*",
+		"@kevintyj/pss-browser": "workspace:*",
+		"@kevintyj/pss-server": "workspace:*",
 		"yargs": "^18.0.0"
 	},
 	"devDependencies": {
@@ -35,10 +40,14 @@
 		"src"
 	],
 	"keywords": [
+		"static-site",
+		"prerendering",
+		"playwright",
+		"html",
+		"generator",
 		"cli",
-		"command-line",
-		"interface"
+		"command-line"
 	],
 	"author": "",
-	"license": "ISC"
+	"license": "BSD-3-Clause"
 }
