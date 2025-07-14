@@ -94,15 +94,15 @@ importers:
       '@kevintyj/pss-config':
         specifier: workspace:*
         version: link:../config
+      '@kevintyj/pss-core':
+        specifier: workspace:*
+        version: link:../core
       '@kevintyj/pss-server':
         specifier: workspace:*
         version: link:../server
       '@kevintyj/pss-types':
         specifier: workspace:*
         version: link:../types
-      '@kevintyj/pss-core':
-        specifier: workspace:*
-        version: link:../core
       yargs:
         specifier: ^18.0.0
         version: 18.0.0
@@ -175,21 +175,21 @@ importers:
       '@kevintyj/pss-browser':
         specifier: workspace:*
         version: link:../browser
+      '@kevintyj/pss-cli':
+        specifier: workspace:*
+        version: link:../cli
       '@kevintyj/pss-config':
         specifier: workspace:*
         version: link:../config
+      '@kevintyj/pss-core':
+        specifier: workspace:*
+        version: link:../core
       '@kevintyj/pss-server':
         specifier: workspace:*
         version: link:../server
       '@kevintyj/pss-types':
         specifier: workspace:*
         version: link:../types
-      '@kevintyj/pss-cli':
-        specifier: workspace:*
-        version: link:../cli
-      '@kevintyj/pss-core':
-        specifier: workspace:*
-        version: link:../core
     devDependencies:
       '@types/node':
         specifier: ^24.0.13

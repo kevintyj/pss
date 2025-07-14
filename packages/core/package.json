@@ -4,7 +4,6 @@
 	"description": "Core prerendering logic for PSS",
 	"type": "module",
 	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
 	"exports": {
 		".": {
 			"import": "./dist/index.js",
@@ -12,7 +11,8 @@
 		}
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --external:p-limit --external:fast-xml-parser --external:@kevintyj/pss-types --external:@kevintyj/pss-config --external:@kevintyj/pss-browser --external:@kevintyj/pss-server && npm run build:types",
+		"build:types": "tsc --emitDeclarationOnly",
 		"dev": "tsx src/index.ts",
 		"format": "biome format --write .",
 		"lint": "biome lint .",

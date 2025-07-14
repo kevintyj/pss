@@ -1,10 +1,14 @@
+import { exec } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, parse } from 'node:path';
+import { promisify } from 'node:util';
 import { BrowserManager } from '@kevintyj/pss-browser';
 import { StaticServer } from '@kevintyj/pss-server';
 import type { CrawlResult, PSSConfig, RouteConfig, SnapshotResult } from '@kevintyj/pss-types';
 import { XMLParser } from 'fast-xml-parser';
 import pLimit from 'p-limit';
+
+const execAsync = promisify(exec);
 
 export class PrerenderEngine {
 	private config: PSSConfig;
@@ -35,7 +39,19 @@ export class PrerenderEngine {
 		this.log('🚀 Starting prerendering process...');
 		this.verboseLog(`Configuration: ${JSON.stringify(this.config, null, 2)}`);
 
+		// Basic configuration validation
+		if (this.config.outDir === this.config.serveDir) {
+			throw new Error(
+				`Output directory '${this.config.outDir}' cannot be the same as serve directory '${this.config.serveDir}'`
+			);
+		}
+
 		try {
+			// Step 0: Run build command if enabled
+			if (this.config.withBuild && this.config.buildCommand) {
+				await this.runBuildCommand();
+			}
+
 			// Step 1: Start static server
 			await this.startServer();
 
@@ -56,6 +72,9 @@ export class PrerenderEngine {
 			// Step 6: Write output files (HTML files will overwrite copies)
 			await this.writeOutputFiles(snapshots);
 
+			// Step 7: Generate non-HTML files (RSS, JSON feeds, sitemap)
+			await this.generateNonHtmlFiles(snapshots);
+
 			const crawlTime = Date.now() - startTime;
 			this.log(`✅ Prerendering completed in ${crawlTime}ms`);
 			this.verboseLog(`Final snapshots: ${snapshots.length} pages processed`);
@@ -72,6 +91,29 @@ export class PrerenderEngine {
 			};
 		} finally {
 			await this.cleanup();
+		}
+	}
+
+	private async runBuildCommand(): Promise<void> {
+		if (!this.config.buildCommand) return;
+
+		this.log(`🔨 Running build command: ${this.config.buildCommand}`);
+		this.verboseLog(`Executing build command: ${this.config.buildCommand}`);
+
+		try {
+			const { stdout, stderr } = await execAsync(this.config.buildCommand);
+
+			if (stdout) {
+				this.verboseLog(`Build stdout: ${stdout}`);
+			}
+			if (stderr) {
+				this.verboseLog(`Build stderr: ${stderr}`);
+			}
+
+			this.log('✅ Build command completed successfully');
+		} catch (error) {
+			this.log(`❌ Build command failed: ${error}`);
+			throw error;
 		}
 	}
 
@@ -284,7 +326,7 @@ export class PrerenderEngine {
 
 						const snapshot = await this.browser?.takeSnapshot({
 							url,
-							stripMode: 'none',
+							strip: this.config.strip,
 							extraDelay: this.config.extraDelay,
 							retry: this.config.retry,
 							retryDelay: this.config.retryDelay,
@@ -474,7 +516,8 @@ export class PrerenderEngine {
 			extraDelay: routeConfig?.extraDelay || this.config.extraDelay,
 			blockDomains: routeConfig?.blockDomains || this.config.blockDomains,
 			retry: routeConfig?.retry || this.config.retry,
-			stripMode: routeConfig?.stripMode || this.config.stripMode,
+			strip: routeConfig?.strip || this.config.strip,
+			inject: routeConfig?.inject || this.config.inject,
 		};
 	}
 
@@ -494,7 +537,7 @@ export class PrerenderEngine {
 
 					const snapshot = await this.browser?.takeSnapshot({
 						url,
-						stripMode: effectiveConfig.stripMode,
+						strip: effectiveConfig.strip,
 						extraDelay: effectiveConfig.extraDelay,
 						retry: effectiveConfig.retry,
 						retryDelay: this.config.retryDelay,
@@ -502,15 +545,24 @@ export class PrerenderEngine {
 						blockDomains: effectiveConfig.blockDomains,
 						timeout: effectiveConfig.timeout,
 						autoFallbackNetworkIdle: this.config.autoFallbackNetworkIdle,
-						// Add injection options
-						injectMeta: this.config.injectMeta,
-						injectHead: this.config.injectHead,
-						injectExtractedMeta: this.config.injectExtractedMeta,
-						injectExtractedHead: this.config.injectExtractedHead,
+						// New injection configuration
+						injectDefaults: this.config.injectDefaults,
+						inject: effectiveConfig.inject,
+						// Original content extraction
+						serveDir: this.config.serveDir,
+						route: route,
+						originalContentSource: this.config.originalContentSource,
+						cacheOriginalContent: this.config.cacheOriginalContent,
+						optimizeExtraction: this.config.optimizeExtraction,
 						verbose: this.verbose,
 					});
 
 					if (snapshot) {
+						// Add base href if configured
+						if (this.config.addBaseHref && this.config.siteUrl) {
+							snapshot.html = this.addBaseHref(snapshot.html, this.config.siteUrl);
+						}
+
 						snapshots.push(snapshot);
 						this.log(`✅ Processed: ${route}`);
 
@@ -536,6 +588,28 @@ export class PrerenderEngine {
 
 		await Promise.all(promises);
 		return snapshots;
+	}
+
+	private addBaseHref(html: string, baseUrl: string): string {
+		// Check if base tag already exists
+		if (html.includes('<base')) {
+			this.verboseLog('Base tag already exists, skipping base href addition');
+			return html;
+		}
+
+		// Add base href to head
+		const baseTag = `<base href="${baseUrl}">`;
+
+		// Find head tag and insert after it
+		const headMatch = html.match(/<head[^>]*>/i);
+		if (headMatch) {
+			const headEndIndex = headMatch.index! + headMatch[0].length;
+			return `${html.slice(0, headEndIndex)}\n  ${baseTag}${html.slice(headEndIndex)}`;
+		}
+
+		// Fallback: insert at the beginning of HTML
+		this.verboseLog('No head tag found, inserting base tag at the beginning');
+		return `${baseTag}\n${html}`;
 	}
 
 	private async writeOutputFiles(snapshots: SnapshotResult[]): Promise<void> {
@@ -589,6 +663,129 @@ export class PrerenderEngine {
 			// Fallback for invalid URLs
 			return 'index.html';
 		}
+	}
+
+	private async generateNonHtmlFiles(snapshots: SnapshotResult[]): Promise<void> {
+		if (!this.config.nonHtml) return;
+
+		this.log('📊 Generating non-HTML files...');
+		this.verboseLog(`Non-HTML configuration: ${JSON.stringify(this.config.nonHtml, null, 2)}`);
+
+		// Generate sitemap
+		if (this.config.nonHtml.sitemap) {
+			await this.generateSitemap(snapshots);
+		}
+
+		// Generate RSS feed
+		if (this.config.nonHtml.rss) {
+			await this.generateRSSFeed(snapshots);
+		}
+
+		// Generate JSON feed
+		if (this.config.nonHtml.jsonFeed) {
+			await this.generateJSONFeed(snapshots);
+		}
+	}
+
+	private async generateSitemap(snapshots: SnapshotResult[]): Promise<void> {
+		this.verboseLog('Generating sitemap.xml');
+
+		const siteUrl = this.config.siteUrl || this.baseUrl;
+		const urls = snapshots
+			.map(snapshot => {
+				const url = new URL(snapshot.url);
+				return `  <url>
+    <loc>${siteUrl}${url.pathname}</loc>
+    <lastmod>${new Date(snapshot.timestamp).toISOString()}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`;
+			})
+			.join('\n');
+
+		const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls}
+</urlset>`;
+
+		const sitemapPath = join(this.config.outDir, 'sitemap.xml');
+		writeFileSync(sitemapPath, sitemap, 'utf8');
+		this.log('📄 Generated sitemap.xml');
+		this.verboseLog(`Sitemap written to: ${sitemapPath}`);
+	}
+
+	private async generateRSSFeed(snapshots: SnapshotResult[]): Promise<void> {
+		this.verboseLog('Generating RSS feed');
+
+		const siteUrl = this.config.siteUrl || this.baseUrl;
+		const items = snapshots
+			.map(snapshot => {
+				const url = new URL(snapshot.url);
+				const title = snapshot.title || 'Untitled';
+				const description = snapshot.meta.description || this.config.siteDescription;
+
+				return `    <item>
+      <title><![CDATA[${title}]]></title>
+      <link>${siteUrl}${url.pathname}</link>
+      <description><![CDATA[${description}]]></description>
+      <pubDate>${new Date(snapshot.timestamp).toUTCString()}</pubDate>
+      <guid isPermaLink="true">${siteUrl}${url.pathname}</guid>
+    </item>`;
+			})
+			.join('\n');
+
+		const rss = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title><![CDATA[${this.config.siteTitle}]]></title>
+    <link>${siteUrl}</link>
+    <description><![CDATA[${this.config.siteDescription}]]></description>
+    <language>en</language>
+    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+    <generator>PSS (Pre-render Static Sites)</generator>
+${items}
+  </channel>
+</rss>`;
+
+		const rssPath = join(this.config.outDir, 'feed.xml');
+		writeFileSync(rssPath, rss, 'utf8');
+		this.log('📄 Generated feed.xml');
+		this.verboseLog(`RSS feed written to: ${rssPath}`);
+	}
+
+	private async generateJSONFeed(snapshots: SnapshotResult[]): Promise<void> {
+		this.verboseLog('Generating JSON feed');
+
+		const siteUrl = this.config.siteUrl || this.baseUrl;
+		const items = snapshots.map(snapshot => {
+			const url = new URL(snapshot.url);
+			return {
+				id: `${siteUrl}${url.pathname}`,
+				url: `${siteUrl}${url.pathname}`,
+				title: snapshot.title || 'Untitled',
+				content_text: snapshot.meta.description || this.config.siteDescription,
+				date_published: new Date(snapshot.timestamp).toISOString(),
+			};
+		});
+
+		const jsonFeed = {
+			version: 'https://jsonfeed.org/version/1.1',
+			title: this.config.siteTitle,
+			home_page_url: siteUrl,
+			feed_url: `${siteUrl}/feed.json`,
+			description: this.config.siteDescription,
+			author: {
+				name: this.config.author.name,
+				email: this.config.author.email,
+				url: this.config.author.url,
+			},
+			items,
+		};
+
+		const jsonPath = join(this.config.outDir, 'feed.json');
+		writeFileSync(jsonPath, JSON.stringify(jsonFeed, null, 2), 'utf8');
+		this.log('📄 Generated feed.json');
+		this.verboseLog(`JSON feed written to: ${jsonPath}`);
 	}
 
 	private resolveUrl(route: string): string {

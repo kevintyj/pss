@@ -12,7 +12,8 @@
 		}
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --external:get-port --external:serve-static --external:@kevintyj/pss-types && npm run build:types",
+		"build:types": "tsc src/index.ts --declaration --emitDeclarationOnly --outDir dist --moduleResolution node --esModuleInterop --skipLibCheck",
 		"dev": "tsx src/index.ts",
 		"format": "biome format --write .",
 		"lint": "biome lint .",

@@ -31,11 +31,10 @@ export async function cli() {
 			description: 'Number of concurrent pages to process',
 			default: 5,
 		})
-		.option('strip-mode', {
-			type: 'string',
-			choices: ['none', 'meta', 'head'],
-			description: 'HTML stripping mode',
-			default: 'none',
+		.option('strip', {
+			type: 'array',
+			description: 'HTML stripping modes (meta, title, head, body, head-except-title, dynamic-content)',
+			default: [],
 		})
 		.option('flat-output', {
 			type: 'boolean',
@@ -67,24 +66,17 @@ export async function cli() {
 			description: 'Whether to start a new server',
 			default: true,
 		})
-		// New injection options
-		.option('inject-meta', {
+		// Original content source options
+		.option('original-content-source', {
 			type: 'string',
-			description: 'JSON string of meta tags to inject (e.g., \'{"description":"My site","keywords":"web,app"}\')',
+			choices: ['static-file', 'pre-javascript'],
+			description: 'Source for original content extraction',
+			default: 'static-file',
 		})
-		.option('inject-head', {
-			type: 'string',
-			description: 'HTML content to inject into head section',
-		})
-		.option('inject-extracted-meta', {
+		.option('cache-original-content', {
 			type: 'boolean',
-			description: 'Inject meta tags that were extracted from the rendered page',
-			default: false,
-		})
-		.option('inject-extracted-head', {
-			type: 'boolean',
-			description: 'Inject head content that was extracted from the rendered page',
-			default: false,
+			description: 'Cache original content across routes',
+			default: true,
 		})
 		// Browser and navigation options
 		.option('timeout', {
@@ -134,8 +126,15 @@ export async function cli() {
 		if (argvString.includes('--concurrency')) {
 			cliOverrides.concurrency = argv.concurrency;
 		}
-		if (argvString.includes('--strip-mode')) {
-			cliOverrides.stripMode = argv.stripMode as 'none' | 'meta' | 'head';
+		if (argvString.includes('--strip')) {
+			cliOverrides.strip = argv.strip as (
+				| 'meta'
+				| 'title'
+				| 'head'
+				| 'body'
+				| 'head-except-title'
+				| 'dynamic-content'
+			)[];
 		}
 		if (argvString.includes('--flat-output')) {
 			cliOverrides.flatOutput = argv.flatOutput;
@@ -152,23 +151,11 @@ export async function cli() {
 		if (argvString.includes('--verbose') || argvString.includes('-v')) {
 			cliOverrides.verbose = argv.verbose;
 		}
-
-		// Handle injection options
-		if (argvString.includes('--inject-meta')) {
-			try {
-				cliOverrides.injectMeta = JSON.parse(argv.injectMeta || '{}');
-			} catch (error) {
-				throw new Error(`Invalid JSON for --inject-meta: ${error instanceof Error ? error.message : error}`);
-			}
+		if (argvString.includes('--original-content-source')) {
+			cliOverrides.originalContentSource = argv.originalContentSource as 'static-file' | 'pre-javascript';
 		}
-		if (argvString.includes('--inject-head')) {
-			cliOverrides.injectHead = argv.injectHead;
-		}
-		if (argvString.includes('--inject-extracted-meta')) {
-			cliOverrides.injectExtractedMeta = argv.injectExtractedMeta;
-		}
-		if (argvString.includes('--inject-extracted-head')) {
-			cliOverrides.injectExtractedHead = argv.injectExtractedHead;
+		if (argvString.includes('--cache-original-content')) {
+			cliOverrides.cacheOriginalContent = argv.cacheOriginalContent;
 		}
 
 		// Handle browser and navigation options
@@ -194,10 +181,12 @@ export async function cli() {
 		console.log(`   Serve directory: ${config.serveDir}`);
 		console.log(`   Output directory: ${config.outDir}`);
 		console.log(`   Concurrency: ${config.concurrency}`);
-		console.log(`   Strip mode: ${config.stripMode}`);
+		console.log(`   Strip modes: ${config.strip.join(', ') || 'none'}`);
 		console.log(`   Flat output: ${config.flatOutput}`);
 		console.log(`   Start server: ${config.startServer}`);
 		console.log(`   Verbose: ${config.verbose}`);
+		console.log(`   Original content source: ${config.originalContentSource}`);
+		console.log(`   Cache original content: ${config.cacheOriginalContent}`);
 		console.log(`   Timeout: ${config.timeout}ms`);
 		console.log(`   Wait until: ${config.waitUntil}`);
 		if (config.blockDomains && config.blockDomains.length > 0) {
@@ -212,55 +201,73 @@ export async function cli() {
 		} else if (!config.startServer) {
 			console.log(`   Server port: ${config.serverPort}`);
 		}
-		if (config.injectMeta && Object.keys(config.injectMeta).length > 0) {
-			console.log(`   Inject meta: ${Object.keys(config.injectMeta).length} tags`);
-		}
-		if (config.injectHead) {
-			console.log(`   Inject head: ${config.injectHead.substring(0, 50)}${config.injectHead.length > 50 ? '...' : ''}`);
-		}
-		if (config.injectExtractedMeta) {
-			console.log(`   Inject extracted meta: true`);
-		}
-		if (config.injectExtractedHead) {
-			console.log(`   Inject extracted head: true`);
-		}
-		console.log(`   Routes: ${config.routes.length > 0 ? config.routes.join(', ') : 'Auto-detect from /'}`);
-		console.log();
 
+		// Show injection configuration
+		const hasInjectConfig =
+			config.inject &&
+			Object.keys(config.inject).some(key => {
+				const contentConfig = config.inject?.[key as keyof typeof config.inject];
+				return contentConfig && (contentConfig.static || contentConfig.original || contentConfig.extracted);
+			});
+		if (hasInjectConfig) {
+			console.log(`   Injection configured: ${Object.keys(config.inject!).join(', ')}`);
+		}
+
+		console.log('');
+
+		// Perform dry run if requested
 		if (argv.dryRun) {
-			console.log('🔍 Dry run mode - no files will be written');
-			console.log('✅ Configuration validation passed');
+			console.log('🔍 Dry run mode - showing what would be done:');
+			console.log('   • Load and parse routes');
+			console.log('   • Start static server');
+			console.log('   • Initialize browser');
+			console.log('   • Process routes with configured options');
+			console.log('   • Write HTML files to output directory');
+			console.log('   • Generate sitemap and feeds');
+			console.log('✅ Dry run complete - no files were actually processed');
 			return;
 		}
 
-		// Run prerendering
+		// Start prerendering
 		const result = await prerender(config);
 
 		// Show results
-		console.log();
-		console.log('📊 Results:');
-		console.log(`   Pages processed: ${result.snapshots.length}`);
-		console.log(`   Output directory: ${config.outDir}`);
-		console.log(`   Total time: ${result.stats.crawlTime}ms`);
-		console.log();
+		console.log('');
+		console.log('📊 Prerendering Results:');
+		console.log(`   Total pages: ${result.stats.totalPages}`);
+		console.log(`   Total assets: ${result.stats.totalAssets}`);
+		console.log(`   Failed assets: ${result.stats.failedAssets}`);
+		console.log(`   Processing time: ${(result.stats.crawlTime / 1000).toFixed(2)}s`);
 
-		if (result.snapshots.length > 0) {
-			console.log('📄 Generated pages:');
-			for (const snapshot of result.snapshots) {
-				console.log(`   • ${snapshot.url} → ${snapshot.url}`);
+		if (result.brokenLinks.length > 0) {
+			console.log(`   Broken links: ${result.brokenLinks.length}`);
+			if (config.verbose) {
+				console.log('\n🔗 Broken Links:');
+				result.brokenLinks.forEach(link => {
+					console.log(`   • ${link.url} (${link.statusCode}) - Referenced from: ${link.referrer}`);
+				});
 			}
 		}
 
-		console.log();
+		console.log('');
 		console.log('✅ Prerendering completed successfully!');
+		console.log(`📁 Output directory: ${config.outDir}`);
+		console.log(`🌐 View your prerendered site files in the output directory`);
 	} catch (error) {
-		console.error('❌ Error:', error instanceof Error ? error.message : error);
+		console.error('❌ Prerendering failed:');
+		console.error(error instanceof Error ? error.message : error);
 		process.exit(1);
 	}
 }
 
 // Only run CLI if this script is being executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (
+	import.meta.url &&
+	process.argv[1] &&
+	(import.meta.url === `file://${process.argv[1]}` ||
+		import.meta.url.endsWith('cli/dist/index.js') ||
+		import.meta.url.endsWith('cli/src/index.ts'))
+) {
 	cli().catch(error => {
 		console.error('❌ Error:', error instanceof Error ? error.message : error);
 		process.exit(1);

@@ -4,37 +4,15 @@
 	"description": "Prerendered Static Site Generator",
 	"type": "module",
 	"main": "dist/index.js",
-	"bin": {
-		"pss": "./dist/index.js"
-	},
 	"exports": {
 		".": {
 			"import": "./dist/index.js",
 			"types": "./dist/index.d.ts"
-		},
-		"./types": {
-			"import": "./dist/types/index.js",
-			"types": "./dist/types/index.d.ts"
-		},
-		"./config": {
-			"import": "./dist/config/index.js",
-			"types": "./dist/config/index.d.ts"
-		},
-		"./browser": {
-			"import": "./dist/browser/index.js",
-			"types": "./dist/browser/index.d.ts"
-		},
-		"./server": {
-			"import": "./dist/server/index.js",
-			"types": "./dist/server/index.d.ts"
-		},
-		"./core": {
-			"import": "./dist/core/index.js",
-			"types": "./dist/core/index.d.ts"
 		}
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --external:@kevintyj/pss-types --external:@kevintyj/pss-config --external:@kevintyj/pss-browser --external:@kevintyj/pss-server --external:@kevintyj/pss-core --external:@kevintyj/pss-cli && npm run build:types",
+		"build:types": "tsc --emitDeclarationOnly",
 		"dev": "tsx src/index.ts",
 		"format": "biome format --write .",
 		"lint": "biome lint .",

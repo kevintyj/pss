@@ -52,7 +52,7 @@ export class StaticServer {
 		const serve = serveStatic(this.options.serveDir, {
 			index: ['index.html'],
 			fallthrough: true, // Enable fallthrough for SPA routing
-			setHeaders: (res, path) => {
+			setHeaders: (res: any, path: any) => {
 				// Set proper headers for static files
 				if (path.endsWith('.html')) {
 					res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -70,7 +70,7 @@ export class StaticServer {
 				this.verboseLog(`Request: ${req.method} ${req.url}`);
 			}
 
-			serve(req, res, err => {
+			serve(req, res, (err: any) => {
 				if (err) {
 					console.error(`Server error for ${req.url}:`, err);
 					this.verboseLog(`Server error details: ${err.message}`);

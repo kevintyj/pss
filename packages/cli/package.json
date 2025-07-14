@@ -4,7 +4,6 @@
 	"description": "Prerendered Static Site Generator - Fast, flexible prerendering tool with CLI",
 	"type": "module",
 	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
 	"bin": {
 		"pss": "./dist/index.js"
 	},
@@ -15,7 +14,8 @@
 		}
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --external:@kevintyj/pss-config --external:@kevintyj/pss-core --external:@kevintyj/pss-types --external:@kevintyj/pss-browser --external:@kevintyj/pss-server --external:yargs && npm run build:types",
+		"build:types": "tsc --emitDeclarationOnly",
 		"dev": "tsx src/index.ts",
 		"format": "biome format --write .",
 		"lint": "biome lint .",

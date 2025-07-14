@@ -1,5 +1,15 @@
-import type { HeadInject, MetaInject, SnapshotResult, StripMode, WaitUntil } from '@kevintyj/pss-types';
+import type {
+	ContentInject,
+	ExtractedContent,
+	InjectDefaults,
+	OriginalContent,
+	SnapshotResult,
+	StripOption,
+	WaitUntil,
+} from '@kevintyj/pss-types';
 import { type Browser, type BrowserContext, chromium, type Page, type Response } from 'playwright';
+import { ContentMerger } from './ContentMerger';
+import { OriginalContentExtractor } from './OriginalContentExtractor';
 
 export interface BrowserOptions {
 	headless?: boolean;
@@ -16,7 +26,7 @@ export interface BrowserOptions {
 
 export interface SnapshotOptions {
 	url: string;
-	stripMode?: StripMode;
+	strip?: StripOption[];
 	extraDelay?: number;
 	retry?: number;
 	retryDelay?: number;
@@ -24,11 +34,18 @@ export interface SnapshotOptions {
 	blockDomains?: string[];
 	timeout?: number;
 	autoFallbackNetworkIdle?: boolean;
-	// New injection options
-	injectMeta?: MetaInject;
-	injectHead?: HeadInject;
-	injectExtractedMeta?: boolean;
-	injectExtractedHead?: boolean;
+
+	// New injection configuration
+	injectDefaults?: InjectDefaults;
+	inject?: ContentInject;
+
+	// Original content extraction
+	serveDir?: string;
+	route?: string;
+	originalContentSource?: 'static-file' | 'pre-javascript';
+	cacheOriginalContent?: boolean;
+	optimizeExtraction?: boolean;
+
 	verbose?: boolean;
 }
 
@@ -37,6 +54,8 @@ export class BrowserManager {
 	private context: BrowserContext | null = null;
 	private options: BrowserOptions;
 	private verbose: boolean;
+	private originalContentExtractor: OriginalContentExtractor;
+	private contentMerger: ContentMerger;
 
 	constructor(options: BrowserOptions = {}) {
 		this.options = {
@@ -44,68 +63,55 @@ export class BrowserManager {
 			timeout: 5000,
 			userAgent: 'PSS/1.0 (Prerendered Static Site Generator)',
 			viewport: { width: 1920, height: 1080 },
-			waitUntil: 'networkidle',
+			waitUntil: 'load',
 			blockDomains: [],
 			verbose: false,
 			...options,
 		};
 
 		this.verbose = this.options.verbose || false;
-		this.verboseLog(`BrowserManager initialized with options: ${JSON.stringify(this.options, null, 2)}`);
+		this.originalContentExtractor = new OriginalContentExtractor(this.verbose);
+		this.contentMerger = new ContentMerger(this.verbose);
 	}
 
-	// Normal logging (always shown)
 	private log(message: string) {
-		console.log(message);
+		console.log(`[BrowserManager] ${message}`);
 	}
 
-	// Verbose logging (only shown when verbose is true)
 	private verboseLog(message: string) {
 		if (this.verbose) {
-			console.log(`[VERBOSE] ${message}`);
+			this.log(message);
 		}
 	}
 
 	async launch(): Promise<void> {
-		if (this.browser) {
+		if (this.browser && this.context) {
+			this.verboseLog('Browser already launched');
 			return;
 		}
 
-		this.log('🚀 Launching browser...');
-		this.verboseLog(`Browser options: ${JSON.stringify(this.options, null, 2)}`);
-
+		this.verboseLog('Launching browser...');
 		this.browser = await chromium.launch({
 			headless: this.options.headless,
-			args: [
-				'--disable-web-security',
-				'--disable-features=VizDisplayCompositor',
-				'--disable-dev-shm-usage',
-				'--no-sandbox',
-			],
+			timeout: this.options.timeout,
 		});
 
+		this.verboseLog('Creating browser context...');
 		this.context = await this.browser.newContext({
-			viewport: this.options.viewport,
 			userAgent: this.options.userAgent,
+			viewport: this.options.viewport,
 			ignoreHTTPSErrors: true,
-			extraHTTPHeaders: {
-				'Accept-Language': 'en-US,en;q=0.9',
-			},
 		});
 
-		// Set up domain blocking if configured
+		// Set up request interception for domain blocking
 		if (this.options.blockDomains && this.options.blockDomains.length > 0) {
-			this.verboseLog(`Setting up domain blocking for: ${this.options.blockDomains.join(', ')}`);
-
+			this.verboseLog(`Blocking domains: ${this.options.blockDomains.join(', ')}`);
 			await this.context.route('**/*', route => {
 				const url = route.request().url();
-				const shouldBlock = this.options.blockDomains?.some(
-					domain =>
-						url.includes(domain) || new URL(url).hostname === domain || new URL(url).hostname.endsWith(`.${domain}`)
-				);
+				const shouldBlock = this.options.blockDomains?.some(domain => url.includes(domain));
 
 				if (shouldBlock) {
-					this.verboseLog(`🚫 Blocking request to: ${url}`);
+					this.verboseLog(`Blocked request to: ${url}`);
 					route.abort();
 				} else {
 					route.continue();
@@ -113,203 +119,134 @@ export class BrowserManager {
 			});
 		}
 
-		// Set default timeouts
-		this.context.setDefaultTimeout(this.options.timeout!);
-		this.context.setDefaultNavigationTimeout(this.options.timeout!);
-
-		this.log('✓ Browser launched successfully');
-		this.verboseLog(`Browser context created with viewport: ${JSON.stringify(this.options.viewport)}`);
+		this.verboseLog('Browser launched successfully');
 	}
 
 	async takeSnapshot(options: SnapshotOptions): Promise<SnapshotResult> {
 		if (!this.browser || !this.context) {
-			throw new Error('Browser not initialized. Call launch() first.');
+			throw new Error('Browser not launched. Call launch() first.');
 		}
 
 		const {
 			url,
-			stripMode = 'none',
+			strip = [],
 			extraDelay = 0,
 			retry = 2,
 			retryDelay = 1000,
-			waitUntil = this.options.waitUntil,
-			blockDomains = this.options.blockDomains,
-			timeout = this.options.timeout,
+			waitUntil = this.options.waitUntil || 'load',
+			blockDomains = [],
+			timeout = this.options.timeout || 5000,
 			autoFallbackNetworkIdle = true,
-			injectMeta,
-			injectHead,
-			injectExtractedMeta,
-			injectExtractedHead,
-			verbose,
+			injectDefaults = { original: true, extracted: false, static: true },
+			inject = {},
+			serveDir = '',
+			route = '',
+			originalContentSource = 'static-file',
+			cacheOriginalContent = true,
+			verbose = this.verbose,
 		} = options;
 
-		// Override verbose setting if passed in options
-		const isVerbose = verbose !== undefined ? verbose : this.verbose;
+		let attempt = 0;
+		const maxAttempts = retry + 1;
 
-		let lastError: Error | null = null;
-		let attemptedFallback = false;
-		let currentWaitUntil = waitUntil;
+		while (attempt < maxAttempts) {
+			try {
+				this.verboseLog(`Attempt ${attempt + 1}/${maxAttempts} for ${url}`);
 
-		// Set up per-request domain blocking if different from global
-		let needsRouteCleanup = false;
-		if (
-			blockDomains &&
-			blockDomains.length > 0 &&
-			JSON.stringify(blockDomains) !== JSON.stringify(this.options.blockDomains)
-		) {
-			this.verboseLog(`Setting up per-request domain blocking for: ${blockDomains.join(', ')}`);
-			needsRouteCleanup = true;
-
-			await this.context.route('**/*', route => {
-				const requestUrl = route.request().url();
-				const shouldBlock = blockDomains.some(
-					domain =>
-						requestUrl.includes(domain) ||
-						new URL(requestUrl).hostname === domain ||
-						new URL(requestUrl).hostname.endsWith(`.${domain}`)
+				return await this.attemptSnapshot(
+					url,
+					strip,
+					extraDelay,
+					waitUntil,
+					timeout,
+					blockDomains,
+					autoFallbackNetworkIdle,
+					injectDefaults,
+					inject,
+					serveDir,
+					route,
+					originalContentSource,
+					cacheOriginalContent,
+					verbose
 				);
+			} catch (error) {
+				attempt++;
+				this.verboseLog(`Attempt ${attempt} failed: ${error}`);
 
-				if (shouldBlock) {
-					this.verboseLog(`🚫 Blocking request to: ${requestUrl}`);
-					route.abort();
-				} else {
-					route.continue();
+				if (attempt >= maxAttempts) {
+					throw error;
 				}
-			});
-		}
 
-		try {
-			for (let attempt = 0; attempt <= retry; attempt++) {
-				try {
-					return await this.attemptSnapshot(
-						url,
-						stripMode,
-						extraDelay,
-						currentWaitUntil!,
-						timeout!,
-						injectMeta,
-						injectHead,
-						injectExtractedMeta,
-						injectExtractedHead,
-						isVerbose
-					);
-				} catch (error) {
-					lastError = error as Error;
-
-					if (attempt < retry) {
-						this.log(`⚠️  Snapshot attempt ${attempt + 1} failed for ${url}, retrying...`);
-
-						// Always log the error reason, not just in verbose mode
-						console.warn(`❌ Failure reason: ${lastError.message}`);
-
-						// Special handling for networkidle timeout with auto-fallback
-						if (
-							autoFallbackNetworkIdle &&
-							!attemptedFallback &&
-							currentWaitUntil === 'networkidle' &&
-							(lastError.message.includes('TimeoutError') || lastError.message.includes('Timeout'))
-						) {
-							console.warn(`🔄 Auto-fallback: Switching from 'networkidle' to 'load' strategy`);
-							console.warn(`💡 Pages with external widgets often work better with 'load' instead of 'networkidle'`);
-							currentWaitUntil = 'load';
-							attemptedFallback = true;
-
-							// Don't count this as a retry attempt since we're trying a different strategy
-							attempt--;
-							continue;
-						}
-
-						// Extract response details from the error message if available
-						if (lastError.message.includes('HTTP ') && lastError.message.includes(':')) {
-							const httpMatch = lastError.message.match(/HTTP (\d+): (.+)/);
-							if (httpMatch) {
-								console.warn(`📊 Response details: Status ${httpMatch[1]}, Status Text: ${httpMatch[2]}`);
-							}
-						}
-
-						// Special handling for timeout errors
-						if (lastError.message.includes('TimeoutError') || lastError.message.includes('Timeout')) {
-							console.warn(`⏱️  Timeout detected - this may indicate slow page loading or network issues`);
-							console.warn(
-								`⚙️  Consider increasing the timeout (current: ${timeout}ms) or using a different waitUntil strategy (current: ${currentWaitUntil})`
-							);
-
-							// Suggest specific solutions for external widgets
-							if (currentWaitUntil === 'networkidle') {
-								console.warn(`💡 For pages with external widgets (YouTube, Cloudflare, etc.), try:`);
-								console.warn(`   • waitUntil: 'load' or 'domcontentloaded' instead of 'networkidle'`);
-								console.warn(
-									`   • blockDomains: ['youtube.com', 'challenges.cloudflare.com'] to block external resources`
-								);
-								console.warn(`   • Increase extraDelay to wait for content to load`);
-								console.warn(`   • Set autoFallbackNetworkIdle: false to disable automatic fallback`);
-							}
-						}
-
-						// Log error type and additional context
-						console.warn(`🔍 Error type: ${lastError.constructor.name}`);
-
-						if (isVerbose) {
-							this.verboseLog(`Full error stack: ${lastError.stack}`);
-						}
-
-						if (retryDelay > 0) {
-							await new Promise(resolve => setTimeout(resolve, retryDelay));
-						}
-					}
-				}
-			}
-
-			throw new Error(`Failed to take snapshot after ${retry + 1} attempts: ${lastError?.message}`);
-		} finally {
-			// Clean up per-request routes if we set them up
-			if (needsRouteCleanup) {
-				await this.context.unroute('**/*');
-
-				// Re-establish global domain blocking if it was configured
-				if (this.options.blockDomains && this.options.blockDomains.length > 0) {
-					await this.context.route('**/*', route => {
-						const url = route.request().url();
-						const shouldBlock = this.options.blockDomains?.some(
-							domain =>
-								url.includes(domain) || new URL(url).hostname === domain || new URL(url).hostname.endsWith(`.${domain}`)
-						);
-
-						if (shouldBlock) {
-							this.verboseLog(`🚫 Blocking request to: ${url}`);
-							route.abort();
-						} else {
-							route.continue();
-						}
-					});
+				if (retryDelay > 0) {
+					this.verboseLog(`Waiting ${retryDelay}ms before retry...`);
+					await new Promise(resolve => setTimeout(resolve, retryDelay));
 				}
 			}
 		}
+
+		throw new Error(`Failed to take snapshot after ${maxAttempts} attempts`);
 	}
 
 	private async attemptSnapshot(
 		url: string,
-		stripMode: StripMode,
+		strip: StripOption[],
 		extraDelay: number,
 		waitUntil: WaitUntil,
 		timeout: number,
-		injectMeta?: MetaInject,
-		injectHead?: HeadInject,
-		injectExtractedMeta?: boolean,
-		injectExtractedHead?: boolean,
-		isVerbose?: boolean
+		blockDomains: string[],
+		_autoFallbackNetworkIdle: boolean,
+		injectDefaults: InjectDefaults,
+		inject: ContentInject,
+		serveDir: string,
+		route: string,
+		originalContentSource: 'static-file' | 'pre-javascript',
+		cacheOriginalContent: boolean,
+		isVerbose: boolean
 	): Promise<SnapshotResult> {
 		const page = (await this.context?.newPage()) as Page;
 		let response: Response | null = null;
 
 		try {
+			// Set up domain blocking for this page if specified
+			if (blockDomains && blockDomains.length > 0) {
+				await page.route('**/*', route => {
+					const requestUrl = route.request().url();
+					const shouldBlock = blockDomains.some(domain => requestUrl.includes(domain));
+
+					if (shouldBlock) {
+						if (isVerbose) {
+							this.verboseLog(`Blocked request to: ${requestUrl}`);
+						}
+						route.abort();
+					} else {
+						route.continue();
+					}
+				});
+			}
+
+			// Extract original content if needed
+			let originalContent: OriginalContent = {
+				title: undefined,
+				meta: {},
+				head: undefined,
+				body: undefined,
+			};
+
+			if (serveDir && route) {
+				originalContent = await this.originalContentExtractor.extractOriginalContent(
+					url,
+					route,
+					serveDir,
+					originalContentSource,
+					originalContentSource === 'pre-javascript' ? page : undefined,
+					cacheOriginalContent
+				);
+			}
+
 			// Navigate to the page
 			this.log(`📸 Taking snapshot: ${url}`);
 			if (isVerbose) {
-				this.verboseLog(`Snapshot config: stripMode=${stripMode}, extraDelay=${extraDelay}`);
-				this.verboseLog(
-					`Injection config: injectMeta=${!!injectMeta}, injectHead=${!!injectHead}, injectExtractedMeta=${!!injectExtractedMeta}, injectExtractedHead=${!!injectExtractedHead}`
-				);
+				this.verboseLog(`Snapshot config: strip=${JSON.stringify(strip)}, extraDelay=${extraDelay}`);
 			}
 
 			response = await page.goto(url, {
@@ -322,7 +259,6 @@ export class BrowserManager {
 			}
 
 			if (response.status() !== 200) {
-				// Include additional response details in error
 				const headers = await response.allHeaders();
 				const responseInfo = {
 					status: response.status(),
@@ -344,9 +280,10 @@ export class BrowserManager {
 				await page.waitForTimeout(extraDelay);
 			}
 
-			const metadata = await this.extractMetadata(page);
+			// Extract content from the rendered page
+			const extractedContent = await this.extractContent(page);
 			if (isVerbose) {
-				this.verboseLog(`Extracted metadata: ${JSON.stringify(metadata, null, 2)}`);
+				this.verboseLog(`Extracted content: ${JSON.stringify(extractedContent, null, 2)}`);
 			}
 
 			let html = await page.content();
@@ -354,20 +291,17 @@ export class BrowserManager {
 				this.verboseLog(`Original HTML length: ${html.length} characters`);
 			}
 
-			html = this.applyStripMode(html, stripMode);
+			// Apply strip modes
+			html = this.applyStripModes(html, strip);
 			if (isVerbose) {
-				this.verboseLog(`HTML after strip mode '${stripMode}': ${html.length} characters`);
+				this.verboseLog(`HTML after strip modes ${JSON.stringify(strip)}: ${html.length} characters`);
 			}
 
-			html = this.applyInjections(
-				html,
-				injectMeta,
-				injectHead,
-				metadata,
-				injectExtractedMeta,
-				injectExtractedHead,
-				isVerbose
-			);
+			// Merge content from all sources
+			const mergedContent = this.contentMerger.mergeContent(originalContent, extractedContent, injectDefaults, inject);
+
+			// Apply merged content to HTML
+			html = this.contentMerger.applyMergedContent(html, mergedContent);
 			if (isVerbose) {
 				this.verboseLog(`Final HTML length: ${html.length} characters`);
 			}
@@ -375,13 +309,12 @@ export class BrowserManager {
 			return {
 				url,
 				html,
-				title: metadata.title,
-				meta: metadata.meta,
+				title: extractedContent.title,
+				meta: extractedContent.meta,
 				statusCode: response.status(),
 				timestamp: Date.now(),
 			};
 		} catch (error) {
-			// Include response details in error message if available
 			let errorMessage = `Failed to take snapshot of ${url}: ${error}`;
 
 			if (response) {
@@ -393,7 +326,6 @@ export class BrowserManager {
 					};
 					errorMessage += ` | Response info: ${JSON.stringify(responseDetails, null, 2)}`;
 				} catch (responseError) {
-					// If we can't get response details, just include the original error
 					errorMessage += ` | Could not extract response details: ${responseError}`;
 				}
 			}
@@ -404,10 +336,12 @@ export class BrowserManager {
 		}
 	}
 
-	private async extractMetadata(page: Page): Promise<{ title?: string; meta: Record<string, string> }> {
+	private async extractContent(page: Page): Promise<ExtractedContent> {
 		return await page.evaluate(() => {
 			const title = document.title;
 			const meta: Record<string, string> = {};
+			const head = document.head?.innerHTML || '';
+			const body = document.body?.innerHTML || '';
 
 			// Extract all meta tags
 			const metaTags = document.querySelectorAll('meta');
@@ -420,25 +354,51 @@ export class BrowserManager {
 				}
 			});
 
-			return { title, meta };
+			return { title, meta, head, body };
 		});
 	}
 
-	private applyStripMode(html: string, stripMode: StripMode): string {
-		switch (stripMode) {
-			case 'none':
-				return html;
+	private applyStripModes(html: string, stripModes: StripOption[]): string {
+		let modifiedHtml = html;
 
+		for (const stripMode of stripModes) {
+			modifiedHtml = this.applyStripMode(modifiedHtml, stripMode);
+		}
+
+		return modifiedHtml;
+	}
+
+	private applyStripMode(html: string, stripMode: StripOption): string {
+		switch (stripMode) {
 			case 'meta':
 				// Remove meta tags but keep title and essential tags
 				return html.replace(/<meta(?!\s+(?:charset|name="viewport"|http-equiv="Content-Type"))[^>]*>/gi, '');
 
+			case 'title':
+				// Remove title tags
+				return html.replace(/<title[^>]*>([^<]*)<\/title>/gi, '');
+
 			case 'head': {
-				// Remove entire head section but keep title
+				// Remove entire head section
+				return html.replace(/<head[^>]*>[\s\S]*?<\/head>/i, '<head></head>');
+			}
+
+			case 'body': {
+				// Remove entire body content but keep body tags
+				return html.replace(/<body[^>]*>[\s\S]*?<\/body>/i, '<body></body>');
+			}
+
+			case 'head-except-title': {
+				// Remove head content but keep title
 				const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
 				const title = titleMatch ? titleMatch[0] : '';
-
 				return html.replace(/<head[^>]*>[\s\S]*?<\/head>/i, `<head>${title}</head>`);
+			}
+
+			case 'dynamic-content': {
+				// Remove JavaScript-generated content by comparing with original
+				// This is a simplified implementation - would need more sophisticated detection
+				return html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
 			}
 
 			default:
@@ -446,163 +406,32 @@ export class BrowserManager {
 		}
 	}
 
-	private applyInjections(
-		html: string,
-		injectMeta?: MetaInject,
-		injectHead?: HeadInject,
-		extractedMetadata?: { title?: string; meta: Record<string, string> },
-		injectExtractedMeta?: boolean,
-		_injectExtractedHead?: boolean,
-		isVerbose?: boolean
-	): string {
-		let modifiedHtml = html;
-
-		// Apply static meta tag injection
-		if (injectMeta && Object.keys(injectMeta).length > 0) {
-			if (isVerbose) {
-				this.verboseLog(`Injecting ${Object.keys(injectMeta).length} static meta tags`);
-			}
-			modifiedHtml = this.injectMetaTags(modifiedHtml, injectMeta);
-		}
-
-		// Apply extracted meta tag injection
-		if (injectExtractedMeta && extractedMetadata?.meta) {
-			if (isVerbose) {
-				this.verboseLog(`Injecting ${Object.keys(extractedMetadata.meta).length} extracted meta tags`);
-			}
-			modifiedHtml = this.injectMetaTags(modifiedHtml, extractedMetadata.meta);
-		}
-
-		// Apply head injection
-		if (injectHead?.trim()) {
-			if (isVerbose) {
-				this.verboseLog(
-					`Injecting head content: ${injectHead.substring(0, 100)}${injectHead.length > 100 ? '...' : ''}`
-				);
-			}
-			modifiedHtml = this.injectHeadContent(modifiedHtml, injectHead);
-		}
-
-		return modifiedHtml;
-	}
-
-	private injectMetaTags(html: string, metaTags: MetaInject): string {
-		if (!metaTags || Object.keys(metaTags).length === 0) {
-			return html;
-		}
-
-		// Generate meta tag HTML
-		const metaTagsHtml = Object.entries(metaTags)
-			.map(([name, content]) => {
-				// Handle different meta tag types
-				if (name.startsWith('og:') || name.startsWith('twitter:') || name.startsWith('fb:')) {
-					return `<meta property="${name}" content="${this.escapeHtml(content)}" />`;
-				} else if (name === 'charset') {
-					return `<meta charset="${this.escapeHtml(content)}" />`;
-				} else if (name.startsWith('http-equiv:')) {
-					const httpEquiv = name.replace('http-equiv:', '');
-					return `<meta http-equiv="${httpEquiv}" content="${this.escapeHtml(content)}" />`;
-				} else {
-					return `<meta name="${name}" content="${this.escapeHtml(content)}" />`;
-				}
-			})
-			.join('\n    ');
-
-		// Find the closing </head> tag and inject meta tags before it
-		const headCloseMatch = html.match(/<\/head>/i);
-		if (headCloseMatch) {
-			const index = headCloseMatch.index!;
-			return `${html.slice(0, index)}    ${metaTagsHtml}\n  ${html.slice(index)}`;
-		}
-
-		// If no </head> found, try to inject after <head>
-		const headOpenMatch = html.match(/<head[^>]*>/i);
-		if (headOpenMatch) {
-			const index = headOpenMatch.index! + headOpenMatch[0].length;
-			return `${html.slice(0, index)}\n    ${metaTagsHtml}${html.slice(index)}`;
-		}
-
-		// If no head section found, create one
-		const htmlMatch = html.match(/<html[^>]*>/i);
-		if (htmlMatch) {
-			const index = htmlMatch.index! + htmlMatch[0].length;
-			return `${html.slice(0, index)}\n  <head>\n    ${metaTagsHtml}\n  </head>${html.slice(index)}`;
-		}
-
-		// Last resort: add at the beginning of the document
-		return `<head>\n  ${metaTagsHtml}\n</head>\n${html}`;
-	}
-
-	private injectHeadContent(html: string, headContent: HeadInject): string {
-		if (!headContent || !headContent.trim()) {
-			return html;
-		}
-
-		const trimmedContent = headContent.trim();
-
-		// Find the closing </head> tag and inject content before it
-		const headCloseMatch = html.match(/<\/head>/i);
-		if (headCloseMatch) {
-			const index = headCloseMatch.index!;
-			return `${html.slice(0, index)}    ${trimmedContent}\n  ${html.slice(index)}`;
-		}
-
-		// If no </head> found, try to inject after <head>
-		const headOpenMatch = html.match(/<head[^>]*>/i);
-		if (headOpenMatch) {
-			const index = headOpenMatch.index! + headOpenMatch[0].length;
-			return `${html.slice(0, index)}\n    ${trimmedContent}${html.slice(index)}`;
-		}
-
-		// If no head section found, create one
-		const htmlMatch = html.match(/<html[^>]*>/i);
-		if (htmlMatch) {
-			const index = htmlMatch.index! + htmlMatch[0].length;
-			return `${html.slice(0, index)}\n  <head>\n    ${trimmedContent}\n  </head>${html.slice(index)}`;
-		}
-
-		// Last resort: add at the beginning of the document
-		return `<head>\n  ${trimmedContent}\n</head>\n${html}`;
-	}
-
-	private escapeHtml(unsafe: string): string {
-		return unsafe
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;')
-			.replace(/"/g, '&quot;')
-			.replace(/'/g, '&#039;');
-	}
-
 	async close(): Promise<void> {
 		if (this.context) {
 			await this.context.close();
 			this.context = null;
 		}
-
 		if (this.browser) {
 			await this.browser.close();
 			this.browser = null;
-			this.log('✓ Browser closed');
 		}
+		this.verboseLog('Browser closed');
 	}
 
 	isRunning(): boolean {
-		return this.browser !== null;
+		return this.browser !== null && this.context !== null;
 	}
 }
 
-// Helper function to take a single snapshot
 export async function takeSnapshot(
 	url: string,
 	options: Partial<SnapshotOptions & BrowserOptions> = {}
 ): Promise<SnapshotResult> {
-	const browser = new BrowserManager(options);
-
+	const manager = new BrowserManager(options);
 	try {
-		await browser.launch();
-		return await browser.takeSnapshot({ url, ...options });
+		await manager.launch();
+		return await manager.takeSnapshot({ url, ...options });
 	} finally {
-		await browser.close();
+		await manager.close();
 	}
 }

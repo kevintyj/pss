@@ -12,7 +12,8 @@
 		}
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "rm -rf dist && bun build src/index.ts --target=node --outfile=dist/index.js --format=esm && bun run build:types",
+		"build:types": "tsc --emitDeclarationOnly",
 		"dev": "tsx src/index.ts",
 		"format": "biome format --write .",
 		"lint": "biome lint .",

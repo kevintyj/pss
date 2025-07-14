@@ -1,13 +1,56 @@
 import { z } from 'zod';
 
-export type StripMode = 'none' | 'meta' | 'head';
+// Strip mode options
+export type StripOption = 'meta' | 'title' | 'head' | 'body' | 'head-except-title' | 'dynamic-content';
 
-export const StripModeSchema = z.enum(['none', 'meta', 'head']);
+export const StripOptionSchema = z.enum(['meta', 'title', 'head', 'body', 'head-except-title', 'dynamic-content']);
 
 export type WaitUntil = 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
 
 export const WaitUntilSchema = z.enum(['load', 'domcontentloaded', 'networkidle', 'commit']);
 
+// Original content source options
+export type OriginalContentSource = 'static-file' | 'pre-javascript';
+
+export const OriginalContentSourceSchema = z.enum(['static-file', 'pre-javascript']);
+
+// Content source configuration for each content type
+export const ContentSourceSchema = z.object({
+	original: z.boolean().default(true),
+	extracted: z.boolean().default(false),
+	static: z.boolean().default(true),
+});
+
+export type ContentSource = z.infer<typeof ContentSourceSchema>;
+
+// Injection defaults configuration
+export const InjectDefaultsSchema = z.object({
+	original: z.boolean().default(true),
+	extracted: z.boolean().default(false),
+	static: z.boolean().default(true),
+});
+
+export type InjectDefaults = z.infer<typeof InjectDefaultsSchema>;
+
+// Content-specific injection configuration
+export const ContentInjectSchema = z.object({
+	meta: ContentSourceSchema.extend({
+		static: z.record(z.string(), z.string()).optional(),
+	}).optional(),
+	title: ContentSourceSchema.extend({
+		static: z.string().optional(),
+	}).optional(),
+	head: ContentSourceSchema.extend({
+		static: z.string().optional(),
+	}).optional(),
+	body: ContentSourceSchema.extend({
+		static: z.string().optional(),
+	}).optional(),
+});
+
+export type ContentInject = z.infer<typeof ContentInjectSchema>;
+
+// Crawl links configuration
 export const CrawlLinksSchema = z.union([
 	z.boolean(),
 	z.object({
@@ -32,16 +75,16 @@ export const RouteConfigSchema = z.object({
 	extraDelay: z.number().min(0).optional(),
 	blockDomains: z.array(z.string()).optional(),
 	retry: z.number().min(0).optional(),
-	stripMode: StripModeSchema.optional(),
+	strip: z.array(StripOptionSchema).optional(),
+	inject: ContentInjectSchema.optional(),
 });
 
-export const MetaInjectSchema = z.record(z.string(), z.string()).optional();
-export type MetaInject = z.infer<typeof MetaInjectSchema>;
-
-export const HeadInjectSchema = z.string().optional();
-export type HeadInject = z.infer<typeof HeadInjectSchema>;
-
 export type RouteConfig = z.infer<typeof RouteConfigSchema>;
+
+// Legacy type aliases for backward compatibility (will be removed)
+export type MetaInject = Record<string, string>;
+export type HeadInject = string;
+export type BodyInject = string;
 
 export const PSSConfigSchema = z.object({
 	serveDir: z.string().default('dist'),
@@ -51,7 +94,27 @@ export const PSSConfigSchema = z.object({
 	crawlLinks: CrawlLinksSchema.default(true),
 	exclude: z.array(z.union([z.string(), z.instanceof(RegExp)])).default([]),
 	extraDelay: z.number().min(0).default(0),
-	stripMode: StripModeSchema.default('none'),
+
+	// New strip configuration - array of strip options
+	strip: z.array(StripOptionSchema).default([]),
+
+	// Global injection defaults
+	injectDefaults: InjectDefaultsSchema.default(() => ({
+		original: true,
+		extracted: false,
+		static: true,
+	})),
+
+	// Content-specific injection configuration
+	inject: ContentInjectSchema.default({}),
+
+	// Original content extraction configuration
+	originalContentSource: OriginalContentSourceSchema.default('static-file'),
+
+	// Performance optimizations
+	optimizeExtraction: z.boolean().default(true),
+	cacheOriginalContent: z.boolean().default(true),
+
 	flatOutput: z.boolean().default(false),
 	addBaseHref: z.boolean().default(false),
 	concurrency: z.number().min(1).max(20).default(5),
@@ -67,11 +130,6 @@ export const PSSConfigSchema = z.object({
 	autoFallbackNetworkIdle: z.boolean().default(true),
 	// Route-specific configurations
 	routeConfig: z.array(RouteConfigSchema).default([]),
-	// Injection configuration
-	injectMeta: MetaInjectSchema,
-	injectHead: HeadInjectSchema,
-	injectExtractedMeta: z.boolean().default(false),
-	injectExtractedHead: z.boolean().default(false),
 	// Server configuration
 	serverUrl: z.string().url().optional(),
 	serverPort: z.number().min(1).max(65535).optional(),
@@ -101,6 +159,22 @@ export interface SnapshotResult {
 	meta: Record<string, string>;
 	statusCode: number;
 	timestamp: number;
+}
+
+// Interface for extracted content data
+export interface ExtractedContent {
+	title?: string;
+	meta: Record<string, string>;
+	head?: string;
+	body?: string;
+}
+
+// Interface for original content data
+export interface OriginalContent {
+	title?: string;
+	meta: Record<string, string>;
+	head?: string;
+	body?: string;
 }
 
 export interface CrawlResult {

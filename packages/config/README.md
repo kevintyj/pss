@@ -44,7 +44,7 @@ export default {
   serveDir: 'dist',
   outDir: 'prerendered',
   concurrency: 5,
-  stripMode: 'meta',
+  strip: ['meta', 'title'], // Array-based strip configuration
   routes: ['/', '/about', '/contact'],
   crawlLinks: true,
   exclude: ['/admin/**', /\.pdf$/],
@@ -55,10 +55,58 @@ export default {
   blockDomains: ['youtube.com', 'googlevideo.com'],
   autoFallbackNetworkIdle: true,
   
+  // Original content extraction
+  originalContentSource: 'static-file',
+  cacheOriginalContent: true,
+  
+  // Global injection defaults
+  injectDefaults: {
+    original: true,    // Include original content from static files
+    extracted: false,  // Don't include JS-generated content by default
+    static: true       // Include config-defined content
+  },
+  
+  // Content-specific injection configuration
+  inject: {
+    meta: {
+      static: {
+        description: 'My awesome site',
+        keywords: 'web,app,static',
+        author: 'John Doe',
+        'og:type': 'website'
+      },
+      extracted: true,  // Override default: include JS-generated meta
+      original: true    // Include original meta from static files
+    },
+    title: {
+      static: 'My Awesome Site',
+      extracted: false, // Don't use JS-generated title
+      original: true    // Use original title from static files
+    },
+    head: {
+      static: '<link rel="canonical" href="https://mysite.com">',
+      extracted: false, // Don't include JS-generated head content
+      original: true    // Include original head content
+    },
+    body: {
+      static: '<div class="loading">Loading...</div>',
+      extracted: false, // Don't include JS-generated body content
+      original: true    // Preserve original body for hydration
+    }
+  },
+  
   // Route-specific configurations for external widgets
   routeConfig: [
     {
       route: '/blog/post/*',
+      strip: ['meta'],
+      inject: {
+        meta: {
+          static: { 'og:type': 'article' },
+          extracted: true,
+          original: false
+        }
+      },
       waitUntil: 'domcontentloaded',
       blockDomains: ['youtube.com', 'twitter.com'],
       timeout: 15000,
@@ -66,6 +114,7 @@ export default {
     },
     {
       route: '/contact',
+      strip: ['dynamic-content'],
       waitUntil: 'domcontentloaded', 
       blockDomains: ['challenges.cloudflare.com'],
       timeout: 12000,
@@ -77,15 +126,6 @@ export default {
       extraDelay: 1000
     }
   ],
-  
-  // Content injection
-  injectMeta: {
-    description: 'My awesome site',
-    keywords: 'web,app,static',
-    author: 'John Doe'
-  },
-  injectHead: '<link rel="canonical" href="https://mysite.com">',
-  injectExtractedMeta: true,
   
   // Other options
   nonHtml: {
@@ -103,12 +143,29 @@ export default {
   "serveDir": "build",
   "outDir": "static",
   "concurrency": 8,
-  "stripMode": "none",
+  "strip": ["meta", "title"],
   "flatOutput": true,
   "timeout": 25000,
   "waitUntil": "load",
   "blockDomains": ["youtube.com", "googlevideo.com"],
-  "autoFallbackNetworkIdle": true
+  "autoFallbackNetworkIdle": true,
+  "originalContentSource": "static-file",
+  "cacheOriginalContent": true,
+  "injectDefaults": {
+    "original": true,
+    "extracted": false,
+    "static": true
+  },
+  "inject": {
+    "meta": {
+      "static": {
+        "description": "My JSON-configured site",
+        "keywords": "json,config,static"
+      },
+      "extracted": true,
+      "original": true
+    }
+  }
 }
 ```
 
@@ -121,9 +178,11 @@ export default {
     "serveDir": "build",
     "outDir": "static",
     "concurrency": 3,
+    "strip": ["meta"],
     "timeout": 20000,
     "waitUntil": "domcontentloaded",
-    "blockDomains": ["challenges.cloudflare.com"]
+    "blockDomains": ["challenges.cloudflare.com"],
+    "originalContentSource": "static-file"
   }
 }
 ```
@@ -136,8 +195,82 @@ export default {
 - `outDir` (string, default: "prerendered"): Output directory for prerendered files
 - `routes` (string[], default: []): Specific routes to prerender
 - `concurrency` (number, default: 5): Number of concurrent pages to process
-- `stripMode` ("none" | "meta" | "head", default: "none"): HTML stripping mode
+- `strip` (StripOption[], default: []): Array of HTML stripping modes
+  - `meta`: Remove meta tags (except charset and viewport)
+  - `title`: Remove title tag
+  - `head`: Remove entire head section
+  - `body`: Remove entire body content
+  - `head-except-title`: Remove head content but keep title
+  - `dynamic-content`: Remove dynamically generated content
 - `flatOutput` (boolean, default: false): Use flat file structure instead of nested
+
+### Original Content Options
+
+- `originalContentSource` ("static-file" | "pre-javascript", default: "static-file"): How to extract original content
+  - `static-file`: Extract content from static HTML files on disk
+  - `pre-javascript`: Extract content from page before JavaScript execution
+- `cacheOriginalContent` (boolean, default: true): Cache original content extraction for better performance
+
+### Content Injection System
+
+PSS uses a three-source injection system with global defaults and content-specific overrides:
+
+#### Global Injection Defaults
+
+- `injectDefaults` (object): Default behavior for all content types
+  - `original` (boolean, default: true): Include original content by default
+  - `extracted` (boolean, default: false): Include JS-generated content by default
+  - `static` (boolean, default: true): Include config-defined content by default
+
+#### Content-Specific Injection
+
+- `inject` (object): Content-specific injection configuration
+  - `meta`: Meta tag injection configuration
+  - `title`: Title injection configuration
+  - `head`: Head content injection configuration
+  - `body`: Body content injection configuration
+
+Each content type supports:
+- `static`: Static content to inject (object for meta, string for others)
+- `extracted`: Whether to include JS-generated content (boolean)
+- `original`: Whether to include original content (boolean)
+
+#### Injection Priority
+
+Content is merged in this order: **original → extracted → static** (later sources override earlier ones)
+
+#### Examples
+
+```javascript
+// Default behavior: only original and static content
+{
+  injectDefaults: { original: true, extracted: false, static: true }
+}
+
+// Include everything for meta tags, only original for title
+{
+  injectDefaults: { original: true, extracted: false, static: true },
+  inject: {
+    meta: { extracted: true }, // Override default
+    title: { static: null }    // Only use original title
+  }
+}
+
+// Preserve hydration structure while replacing meta
+{
+  strip: ['meta'],
+  inject: {
+    meta: {
+      static: { 'description': 'SEO optimized' },
+      extracted: false,
+      original: false
+    },
+    body: {
+      original: true // Keep original body for hydration
+    }
+  }
+}
+```
 
 ### Crawling Options
 
@@ -173,21 +306,16 @@ export default {
 ```typescript
 interface RouteConfig {
   route: string;                    // Route pattern (exact, wildcard, or '*' for global)
+  strip?: StripOption[];            // Override strip modes for this route
+  inject?: ContentInject;           // Override injection configuration
+  injectDefaults?: InjectDefaults;  // Override injection defaults
   waitUntil?: WaitUntil;           // Override wait strategy for this route
   timeout?: number;                 // Override timeout for this route
   extraDelay?: number;              // Extra delay after page load
   blockDomains?: string[];          // Domains to block for this route
   retry?: number;                   // Number of retry attempts
-  stripMode?: StripMode;            // HTML stripping mode for this route
 }
 ```
-
-### Content Injection
-
-- `injectMeta` (Record<string, string>, optional): Meta tags to inject into all pages
-- `injectHead` (string, optional): HTML content to inject into head section
-- `injectExtractedMeta` (boolean, default: false): Preserve JavaScript-generated meta tags
-- `injectExtractedHead` (boolean, default: false): Preserve JavaScript-generated head content
 
 ### Crawling & Processing
 
@@ -426,6 +554,61 @@ export default {
       route: '/blog/*',
       extraDelay: 1000, // Let content render
       blockDomains: ['youtube.com', 'twitter.com']
+    }
+  ]
+};
+```
+
+### Flexible Strip and Inject Configuration
+
+```javascript
+// pss.config.js
+export default {
+  serveDir: 'dist',
+  outDir: 'prerendered',
+  
+  // Global strip mode
+  stripMode: 'body', // Strip body content from all pages
+  
+  // Inject content into stripped pages
+  injectMeta: {
+    'description': 'Lightweight prerendered content',
+    'og:type': 'website',
+    'twitter:card': 'summary'
+  },
+  injectHead: `
+    <link rel="stylesheet" href="/minimal.css">
+    <script>console.log('Minimal page loaded');</script>
+  `,
+  injectBody: `
+    <div class="minimal-content">
+      <h1>Content Loading...</h1>
+      <p>This is a minimal version of the page.</p>
+    </div>
+  `,
+  
+  // Selective injection: only preserve specific extracted content
+  injectExtractedMeta: true,    // ✅ Preserve meta tags
+  injectExtractedTitle: true,   // ✅ Preserve title
+  // injectExtractedHead: false (implicit) - Don't preserve head
+  // injectExtractedBody: false (implicit) - Don't preserve body
+  
+  // Route-specific overrides
+  routeConfig: [
+    {
+      route: '/blog/*',
+      stripMode: 'none', // Keep full content for blog posts
+      // No injection options = inject everything by default (backward compatibility)
+    },
+    {
+      route: '/api/*',
+      stripMode: 'head', // API docs only need meta
+      injectHead: '<meta name="robots" content="noindex">',
+      disableAllInjection: false // Explicit: allow injection
+    },
+    {
+      route: '/admin/*',
+      disableAllInjection: true // Completely disable all injection
     }
   ]
 };

@@ -10,12 +10,81 @@ A fast, flexible prerendering tool that generates static HTML files from your we
 - **Modern**: Uses latest Playwright for reliable rendering
 - **Modular**: Clean workspace architecture with composable packages
 - **Sitemap Support**: Automatic sitemap parsing and route discovery
-- **Content Injection**: Inject custom meta tags and head content
+- **Advanced Content Processing**: Strip and inject content from multiple sources
+  - **Strip modes**: Support for arrays: `['meta', 'title', 'head', 'body', 'head-except-title', 'dynamic-content']`
+  - **Three content sources**: Original (static/pre-JS), extracted (JS-generated), static (config-defined)
+  - **Flexible injection**: Content-specific injection controls with global defaults
+  - **Original content preservation**: Maintain hydration-ready structure
 - **Advanced Browser Control**: Page timeouts, wait conditions, domain blocking
 - **Route-Specific Config**: Different settings per route
 - **Non-HTML Outputs**: RSS feeds, JSON feeds, and sitemaps
 - **Verbose Logging**: Detailed logging for debugging
 - **Special Protocol Support**: Optionally crawl mailto:, tel:, etc. links
+
+## 🔧 Quick Example
+
+```javascript
+// pss.config.js - New flexible configuration structure
+export default {
+  // Array-based strip configuration
+  strip: ['body', 'meta'], // Strip body content and meta tags
+  
+  // Global injection defaults
+  injectDefaults: {
+    original: true,    // Include original content (from static files)
+    extracted: false,  // Don't include JS-generated content by default
+    static: true       // Include config-defined content
+  },
+  
+  // Content-specific injection configuration
+  inject: {
+    meta: {
+      static: {
+        'description': 'Lightweight prerendered content',
+        'og:type': 'website',
+        'keywords': 'web,app,static'
+      },
+      extracted: true,  // Override default: include JS-generated meta
+      original: true    // Include original meta from static files
+    },
+    title: {
+      static: 'My App - Static Title',
+      extracted: false, // Don't use JS-generated title
+      original: true    // Use original title from static files
+    },
+    head: {
+      static: '<link rel="stylesheet" href="/minimal.css">',
+      extracted: false, // Don't include JS-generated head content
+      original: true    // Include original head content
+    },
+    body: {
+      static: '<div class="loading">Content loading...</div>',
+      extracted: false, // Don't include JS-generated body content
+      original: true    // Preserve original body for hydration
+    }
+  },
+  
+  // Original content extraction settings
+  originalContentSource: 'static-file', // or 'pre-javascript'
+  cacheOriginalContent: true,
+  
+  // Route-specific overrides
+  routeConfig: [
+    {
+      route: '/blog/*',
+      strip: [], // Keep full content for blog posts
+      injectDefaults: { original: true, extracted: true, static: true }
+    },
+    {
+      route: '/api/*',
+      strip: ['head', 'body'], // Strip everything except meta and title
+      inject: {
+        meta: { static: { 'content-type': 'application/json' } }
+      }
+    }
+  ]
+};
+```
 
 ## 📁 Project Structure
 
@@ -92,13 +161,13 @@ pnpm ci
 ### Core Packages
 
 - **[@kevintyj/pss-types](./packages/types)** - TypeScript types and Zod schemas
-  - Exports: `StripMode`, `WaitUntil`, `PSSConfig`, `SnapshotResult`, `CrawlResult`, `RouteConfig`, validation schemas
+  - Exports: `StripOption`, `ContentSource`, `InjectDefaults`, `ContentInject`, `WaitUntil`, `PSSConfig`, `SnapshotResult`, `CrawlResult`, `RouteConfig`, validation schemas
 - **[@kevintyj/pss-config](./packages/config)** - Configuration loading and validation  
-  - Exports: `loadConfig()`, `mergeConfigs()`, `validateConfig()`, `ConfigLoadResult`
+  - Exports: `loadConfig()`, `mergeConfigs()`, `validateConfig()`, `ConfigLoadResult`, `ConfigValidator`
 - **[@kevintyj/pss-server](./packages/server)** - Static file server functionality
   - Exports: `StaticServer`, `createStaticServer()`, `ServerOptions`, `ServerInfo`
 - **[@kevintyj/pss-browser](./packages/browser)** - Browser automation with Playwright
-  - Exports: `BrowserManager`, `takeSnapshot()`, `BrowserOptions`, `SnapshotOptions`
+  - Exports: `BrowserManager`, `OriginalContentExtractor`, `ContentMerger`, `takeSnapshot()`, `BrowserOptions`, `SnapshotOptions`
 - **[@kevintyj/pss-core](./packages/core)** - Core prerendering engine
   - Exports: `PrerenderEngine`, `prerender()` function
 - **[@kevintyj/pss-cli](./packages/cli)** - Command-line interface
@@ -133,14 +202,17 @@ pnpm install @kevintyj/pss
 # Use with default settings
 pss
 
-# Custom configuration
-pss --serve-dir build --out-dir static --concurrency 5
+# Custom configuration with new options
+pss --serve-dir build --out-dir static --concurrency 5 --strip meta title
 ```
 
 ### Advanced Usage
 
 ```bash
-# Content injection
+# Array-based strip configuration
+pss --strip body meta head --original-content-source static-file
+
+# Content injection with sources
 pss --inject-meta '{"description":"My site","keywords":"web,app"}' --inject-head '<link rel="stylesheet" href="custom.css">'
 
 # Browser control
