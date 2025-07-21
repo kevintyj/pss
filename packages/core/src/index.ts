@@ -2,11 +2,13 @@ import { exec } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, parse } from 'node:path';
 import { promisify } from 'node:util';
+
+import { XMLParser } from 'fast-xml-parser';
+import pLimit from 'p-limit';
+
 import { BrowserManager } from '@kevintyj/pss-browser';
 import { StaticServer } from '@kevintyj/pss-server';
 import type { CrawlResult, PSSConfig, RouteConfig, SnapshotResult } from '@kevintyj/pss-types';
-import { XMLParser } from 'fast-xml-parser';
-import pLimit from 'p-limit';
 
 const execAsync = promisify(exec);
 
@@ -34,17 +36,29 @@ export class PrerenderEngine {
 		}
 	}
 
-	async prerender(): Promise<CrawlResult> {
-		const startTime = Date.now();
-		this.log('🚀 Starting prerendering process...');
-		this.verboseLog(`Configuration: ${JSON.stringify(this.config, null, 2)}`);
-
-		// Basic configuration validation
+	private validateConfig(): void {
 		if (this.config.outDir === this.config.serveDir) {
 			throw new Error(
 				`Output directory '${this.config.outDir}' cannot be the same as serve directory '${this.config.serveDir}'`
 			);
 		}
+
+		if (!this.config.serveDir) {
+			throw new Error('Serve directory must be specified');
+		}
+
+		if (!this.config.outDir) {
+			throw new Error('Output directory must be specified');
+		}
+	}
+
+	async prerender(): Promise<CrawlResult> {
+		const startTime = Date.now();
+		this.log('🚀 Starting prerendering process...');
+		this.verboseLog(`Configuration: ${JSON.stringify(this.config, null, 2)}`);
+
+		// Validate configuration
+		this.validateConfig();
 
 		try {
 			// Step 0: Run build command if enabled
@@ -81,14 +95,17 @@ export class PrerenderEngine {
 
 			return {
 				snapshots,
-				brokenLinks: [], // TODO: Implement broken link detection
+				brokenLinks: [], // Broken link detection would require additional crawling
 				stats: {
 					totalPages: snapshots.length,
-					totalAssets: 0, // TODO: Count assets
-					failedAssets: 0, // TODO: Count failed assets
+					totalAssets: 0, // Asset counting would require filesystem analysis
+					failedAssets: 0, // Failed asset counting would require additional monitoring
 					crawlTime,
 				},
 			};
+		} catch (error) {
+			this.log(`❌ Prerendering failed: ${error instanceof Error ? error.message : error}`);
+			throw error;
 		} finally {
 			await this.cleanup();
 		}
@@ -292,8 +309,7 @@ export class PrerenderEngine {
 	private async crawlLinks(seedRoutes: string[]): Promise<string[]> {
 		const crawlConfig =
 			typeof this.config.crawlLinks === 'object' ? this.config.crawlLinks : { depth: 3, concurrency: 3 };
-		const maxDepth = crawlConfig.depth;
-		const concurrency = crawlConfig.concurrency;
+		const { depth: maxDepth, concurrency } = crawlConfig;
 		this.verboseLog(`Crawling with depth: ${maxDepth}, concurrency: ${concurrency}`);
 
 		const visited = new Set<string>();
@@ -301,11 +317,11 @@ export class PrerenderEngine {
 		const queue: Array<{ route: string; depth: number }> = [];
 
 		// Initialize queue with seed routes
-		seedRoutes.forEach(route => {
+		for (const route of seedRoutes) {
 			const normalizedRoute = this.normalizeRoute(route);
 			queue.push({ route: normalizedRoute, depth: 0 });
 			visited.add(normalizedRoute);
-		});
+		}
 
 		const limit = pLimit(concurrency);
 
@@ -315,10 +331,7 @@ export class PrerenderEngine {
 
 			const promises = batch.map(({ route, depth }) =>
 				limit(async () => {
-					if (depth >= maxDepth) {
-						this.verboseLog(`Skipping ${route} - max depth reached`);
-						return;
-					}
+					if (depth >= maxDepth) return;
 
 					try {
 						const url = this.resolveUrl(route);
@@ -350,8 +363,7 @@ export class PrerenderEngine {
 							}
 						}
 					} catch (error) {
-						console.warn(`⚠️  Failed to crawl ${route}:`, error);
-						this.verboseLog(`Crawling error for ${route}: ${error}`);
+						console.warn(`⚠️  Failed to crawl ${route}:`, error instanceof Error ? error.message : error);
 					}
 				})
 			);
@@ -533,7 +545,6 @@ export class PrerenderEngine {
 					const effectiveConfig = this.getEffectiveConfig(route);
 
 					this.verboseLog(`Processing route: ${route} → ${url}`);
-					this.verboseLog(`Route config: ${JSON.stringify(effectiveConfig, null, 2)}`);
 
 					const snapshot = await this.browser?.takeSnapshot({
 						url,
@@ -552,6 +563,7 @@ export class PrerenderEngine {
 						serveDir: this.config.serveDir,
 						route: route,
 						originalContentSource: this.config.originalContentSource,
+						injectionTarget: this.config.injectionTarget,
 						cacheOriginalContent: this.config.cacheOriginalContent,
 						optimizeExtraction: this.config.optimizeExtraction,
 						verbose: this.verbose,
@@ -566,21 +578,19 @@ export class PrerenderEngine {
 						snapshots.push(snapshot);
 						this.log(`✅ Processed: ${route}`);
 
-						// Verbose: Show HTML preview and metadata
+						// Verbose: Show basic metadata
 						if (this.verbose) {
-							this.verboseLog(`HTML preview for ${route}:`);
-							const htmlPreview = snapshot.html.substring(0, 500) + (snapshot.html.length > 500 ? '...' : '');
-							this.verboseLog(htmlPreview);
-							this.verboseLog(`Meta tags: ${JSON.stringify(snapshot.meta, null, 2)}`);
-							this.verboseLog(`Title: ${snapshot.title}`);
-							this.verboseLog(`Status: ${snapshot.statusCode}`);
+							this.verboseLog(`${route}: ${snapshot.title || 'No title'} (${snapshot.statusCode})`);
 						}
 
 						return snapshot;
 					}
 				} catch (error) {
-					console.error(`❌ Failed to process ${route}:`, error);
-					this.verboseLog(`Processing error for ${route}: ${error}`);
+					const errorMessage = error instanceof Error ? error.message : String(error);
+					console.error(`❌ Failed to process ${route}: ${errorMessage}`);
+					if (this.verbose && error instanceof Error && error.stack) {
+						console.error(error.stack);
+					}
 					throw error;
 				}
 			})

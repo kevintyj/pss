@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
+
 import { loadConfig } from '@kevintyj/pss-config';
 import { prerender } from '@kevintyj/pss-core';
 import type { PSSConfig } from '@kevintyj/pss-types';
-import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
 
 export async function cli() {
 	const argv = await yargs(hideBin(process.argv))
@@ -82,7 +84,7 @@ export async function cli() {
 		.option('timeout', {
 			type: 'number',
 			description: 'Page load timeout in milliseconds (see: https://playwright.dev/docs/api/class-frame#frame-goto)',
-			default: 30000,
+			default: 5000,
 		})
 		.option('wait-until', {
 			type: 'string',
@@ -101,8 +103,10 @@ export async function cli() {
 			description: 'Automatically fallback from networkidle to load on timeout',
 			default: true,
 		})
-		.version('1.0.0')
+		.version('0.0.0')
 		.help().argv;
+
+	let config: PSSConfig | undefined;
 
 	try {
 		console.log('🚀 PSS (Prerendered Static Site Generator)');
@@ -110,108 +114,90 @@ export async function cli() {
 
 		// Load configuration
 		const configResult = await loadConfig(argv.config);
-		let config = configResult.config;
+		config = configResult.config;
 
 		// Override config with CLI arguments (only if explicitly provided)
 		const cliOverrides: Partial<PSSConfig> = {};
 		const originalArgv = process.argv.slice(2);
 		const argvString = originalArgv.join(' ');
 
-		if (argvString.includes('--serve-dir') || argvString.includes('-s')) {
-			cliOverrides.serveDir = argv.serveDir;
-		}
-		if (argvString.includes('--out-dir') || argvString.includes('-o')) {
-			cliOverrides.outDir = argv.outDir;
-		}
-		if (argvString.includes('--concurrency')) {
-			cliOverrides.concurrency = argv.concurrency;
-		}
-		if (argvString.includes('--strip')) {
-			cliOverrides.strip = argv.strip as (
-				| 'meta'
-				| 'title'
-				| 'head'
-				| 'body'
-				| 'head-except-title'
-				| 'dynamic-content'
-			)[];
-		}
-		if (argvString.includes('--flat-output')) {
-			cliOverrides.flatOutput = argv.flatOutput;
-		}
-		if (argvString.includes('--server-url')) {
-			cliOverrides.serverUrl = argv.serverUrl;
-		}
-		if (argvString.includes('--server-port')) {
-			cliOverrides.serverPort = argv.serverPort;
-		}
-		if (argvString.includes('--start-server')) {
-			cliOverrides.startServer = argv.startServer;
-		}
-		if (argvString.includes('--verbose') || argvString.includes('-v')) {
-			cliOverrides.verbose = argv.verbose;
-		}
-		if (argvString.includes('--original-content-source')) {
-			cliOverrides.originalContentSource = argv.originalContentSource as 'static-file' | 'pre-javascript';
-		}
-		if (argvString.includes('--cache-original-content')) {
-			cliOverrides.cacheOriginalContent = argv.cacheOriginalContent;
-		}
+		// Helper function to check if argument was provided
+		const hasArg = (arg: string, shortArg?: string): boolean => {
+			return argvString.includes(`--${arg}`) || (shortArg ? argvString.includes(`-${shortArg}`) : false);
+		};
 
-		// Handle browser and navigation options
-		if (argvString.includes('--timeout')) {
-			cliOverrides.timeout = argv.timeout;
-		}
-		if (argvString.includes('--wait-until')) {
-			cliOverrides.waitUntil = argv.waitUntil as 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
-		}
-		if (argvString.includes('--block-domains')) {
-			cliOverrides.blockDomains = argv.blockDomains as string[];
-		}
-		if (argvString.includes('--auto-fallback-network-idle')) {
-			cliOverrides.autoFallbackNetworkIdle = argv.autoFallbackNetworkIdle;
-		}
+		// Basic options
+		if (hasArg('serve-dir', 's')) cliOverrides.serveDir = argv.serveDir;
+		if (hasArg('out-dir', 'o')) cliOverrides.outDir = argv.outDir;
+		if (hasArg('concurrency')) cliOverrides.concurrency = argv.concurrency;
+		if (hasArg('strip')) cliOverrides.strip = argv.strip as PSSConfig['strip'];
+		if (hasArg('flat-output')) cliOverrides.flatOutput = argv.flatOutput;
+		if (hasArg('verbose', 'v')) cliOverrides.verbose = argv.verbose;
+
+		// Server options
+		if (hasArg('server-url')) cliOverrides.serverUrl = argv.serverUrl;
+		if (hasArg('server-port')) cliOverrides.serverPort = argv.serverPort;
+		if (hasArg('start-server')) cliOverrides.startServer = argv.startServer;
+
+		// Content options
+		if (hasArg('original-content-source'))
+			cliOverrides.originalContentSource = argv.originalContentSource as PSSConfig['originalContentSource'];
+		if (hasArg('cache-original-content') && typeof argv.cacheOriginalContent === 'boolean')
+			cliOverrides.cacheOriginalContent = argv.cacheOriginalContent;
+
+		// Browser options
+		if (hasArg('timeout')) cliOverrides.timeout = argv.timeout;
+		if (hasArg('wait-until')) cliOverrides.waitUntil = argv.waitUntil as PSSConfig['waitUntil'];
+		if (hasArg('block-domains')) cliOverrides.blockDomains = argv.blockDomains as string[];
+		if (hasArg('auto-fallback-network-idle')) cliOverrides.autoFallbackNetworkIdle = argv.autoFallbackNetworkIdle;
 
 		// Apply CLI overrides
 		config = { ...config, ...cliOverrides };
 
 		// Show configuration
-		console.log('📋 Configuration:');
-		console.log(`   Source: ${configResult.source}`);
-		console.log(`   Serve directory: ${config.serveDir}`);
-		console.log(`   Output directory: ${config.outDir}`);
-		console.log(`   Concurrency: ${config.concurrency}`);
-		console.log(`   Strip modes: ${config.strip.join(', ') || 'none'}`);
-		console.log(`   Flat output: ${config.flatOutput}`);
-		console.log(`   Start server: ${config.startServer}`);
-		console.log(`   Verbose: ${config.verbose}`);
-		console.log(`   Original content source: ${config.originalContentSource}`);
-		console.log(`   Cache original content: ${config.cacheOriginalContent}`);
-		console.log(`   Timeout: ${config.timeout}ms`);
-		console.log(`   Wait until: ${config.waitUntil}`);
-		if (config.blockDomains && config.blockDomains.length > 0) {
-			console.log(`   Block domains: ${config.blockDomains.join(', ')}`);
-		}
-		console.log(`   Auto-fallback networkidle: ${config.autoFallbackNetworkIdle}`);
-		if (config.crawlSpecialProtocols) {
-			console.log(`   Crawl special protocols: ${config.crawlSpecialProtocols}`);
-		}
-		if (config.serverUrl) {
-			console.log(`   Server URL: ${config.serverUrl}`);
-		} else if (!config.startServer) {
-			console.log(`   Server port: ${config.serverPort}`);
-		}
+		const showConfig = (config: PSSConfig, source: string) => {
+			console.log('📋 Configuration:');
+			console.log(`   Source: ${source}`);
+			console.log(`   Serve directory: ${config.serveDir}`);
+			console.log(`   Output directory: ${config.outDir}`);
+			console.log(`   Concurrency: ${config.concurrency}`);
+			console.log(`   Strip modes: ${config.strip.join(', ') || 'none'}`);
+			console.log(`   Flat output: ${config.flatOutput}`);
+			console.log(`   Start server: ${config.startServer}`);
+			console.log(`   Verbose: ${config.verbose}`);
+			console.log(`   Original content source: ${config.originalContentSource}`);
+			console.log(`   Cache original content: ${config.cacheOriginalContent}`);
+			console.log(`   Timeout: ${config.timeout}ms`);
+			console.log(`   Wait until: ${config.waitUntil}`);
 
-		// Show injection configuration
-		const hasInjectConfig =
-			config.inject &&
-			Object.keys(config.inject).some(key => {
-				const contentConfig = config.inject?.[key as keyof typeof config.inject];
-				return contentConfig && (contentConfig.static || contentConfig.original || contentConfig.extracted);
-			});
-		if (hasInjectConfig) {
-			console.log(`   Injection configured: ${Object.keys(config.inject!).join(', ')}`);
-		}
+			if (config.blockDomains?.length > 0) {
+				console.log(`   Block domains: ${config.blockDomains.join(', ')}`);
+			}
+			console.log(`   Auto-fallback networkidle: ${config.autoFallbackNetworkIdle}`);
+
+			if (config.crawlSpecialProtocols) {
+				console.log(`   Crawl special protocols: ${config.crawlSpecialProtocols}`);
+			}
+
+			if (config.serverUrl) {
+				console.log(`   Server URL: ${config.serverUrl}`);
+			} else if (!config.startServer) {
+				console.log(`   Server port: ${config.serverPort}`);
+			}
+
+			// Show injection configuration
+			const hasInjectConfig =
+				config.inject &&
+				Object.keys(config.inject).some(key => {
+					const contentConfig = config.inject?.[key as keyof typeof config.inject];
+					return contentConfig && (contentConfig.static || contentConfig.original || contentConfig.extracted);
+				});
+			if (hasInjectConfig) {
+				console.log(`   Injection configured: ${Object.keys(config.inject!).join(', ')}`);
+			}
+		};
+
+		showConfig(config, configResult.source);
 
 		console.log('');
 
@@ -254,8 +240,26 @@ export async function cli() {
 		console.log(`📁 Output directory: ${config.outDir}`);
 		console.log(`🌐 View your prerendered site files in the output directory`);
 	} catch (error) {
+		console.error('');
 		console.error('❌ Prerendering failed:');
-		console.error(error instanceof Error ? error.message : error);
+
+		if (error instanceof Error) {
+			console.error(`   ${error.message}`);
+			if (config?.verbose && error.stack) {
+				console.error('\n🔍 Stack trace:');
+				console.error(error.stack);
+			}
+		} else {
+			console.error(`   ${error}`);
+		}
+
+		console.error('');
+		console.error('💡 Troubleshooting tips:');
+		console.error('   • Check that your serve directory exists and contains files');
+		console.error('   • Verify your configuration file is valid');
+		console.error('   • Use --verbose for more detailed error information');
+		console.error('   • Check the GitHub repository for known issues');
+
 		process.exit(1);
 	}
 }

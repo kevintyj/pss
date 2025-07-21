@@ -10,11 +10,12 @@ A fast, flexible prerendering tool that generates static HTML files from your we
 - **Modern**: Uses latest Playwright for reliable rendering
 - **Modular**: Clean workspace architecture with composable packages
 - **Sitemap Support**: Automatic sitemap parsing and route discovery
-- **Advanced Content Processing**: Strip and inject content from multiple sources
+- **Smart Content Processing**: Intelligent content merging from multiple sources
   - **Strip modes**: Support for arrays: `['meta', 'title', 'head', 'body', 'head-except-title', 'dynamic-content']`
   - **Three content sources**: Original (static/pre-JS), extracted (JS-generated), static (config-defined)
-  - **Flexible injection**: Content-specific injection controls with global defaults
-  - **Original content preservation**: Maintain hydration-ready structure
+  - **Smart Deduplication**: Only inject content that's actually different or missing
+  - **Priority-based Merging**: `original → extracted → static` with intelligent comparison
+  - **Original content preservation**: Maintain hydration-ready structure when possible
 - **Advanced Browser Control**: Page timeouts, wait conditions, domain blocking
 - **Route-Specific Config**: Different settings per route
 - **Non-HTML Outputs**: RSS feeds, JSON feeds, and sitemaps
@@ -85,6 +86,117 @@ export default {
   ]
 };
 ```
+
+## 🧠 Content Merging & Priority System
+
+PSS uses an intelligent content merging system that compares existing content with what needs to be injected, only making changes when necessary. This preserves your original structure and formatting whenever possible.
+
+### Priority System
+
+Content is merged using a **priority-based system** where later sources override earlier ones:
+
+```
+Original Content → Extracted Content → Static Content
+     (base)           (JS-generated)      (config)
+```
+
+### Smart Deduplication
+
+Instead of blindly removing and re-injecting content, PSS **compares existing content** with what would be injected:
+
+- **🔍 Not Found**: Inject new content
+- **✅ Same Content**: Skip injection (preserve original)  
+- **🔄 Different Content**: Replace with new content
+
+### Example: Meta Tag Merging
+
+```html
+<!-- Original static file -->
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#000000" />
+
+<!-- JavaScript wants to inject -->
+<!-- viewport: "width=device-width, initial-scale=1" (same) -->
+<!-- theme-color: "#ffffff" (different) -->
+<!-- description: "My awesome site" (new) -->
+
+<!-- Final result -->
+<meta name="viewport" content="width=device-width, initial-scale=1" />  <!-- preserved -->
+<meta name="theme-color" content="#ffffff" />                            <!-- replaced -->
+<meta name="description" content="My awesome site" />                    <!-- added -->
+```
+
+### Configuration Examples
+
+#### Preserve Static Structure (Recommended)
+```javascript
+// Only inject dynamic content, preserve static file structure
+{
+  injectDefaults: {
+    original: false,   // Don't duplicate static content
+    extracted: false,  // Only inject specific content
+    static: false
+  },
+  inject: {
+    meta: { extracted: true },     // Get meta from JS
+    title: { extracted: true },    // Get title from JS
+    // head/body use defaults (preserve static structure)
+  }
+}
+```
+
+#### Full Dynamic Override
+```javascript
+// Replace all content with dynamic versions
+{
+  injectDefaults: {
+    original: false,   // Remove static content
+    extracted: true,   // Use JS-generated content
+    static: true       // Include config content
+  }
+}
+```
+
+#### Hybrid Approach
+```javascript
+// Mix static and dynamic content intelligently
+{
+  injectDefaults: { original: true, extracted: false, static: false },
+  inject: {
+    meta: { 
+      original: false,  // Don't include static meta
+      extracted: true,  // Use JS meta
+      static: { 'robots': 'index,follow' }  // Add config meta
+    },
+    title: { extracted: true },  // JS title overrides static
+    // head/body keep defaults (include static content)
+  }
+}
+```
+
+### Verbose Logging
+
+Enable `--verbose` to see the merging decisions:
+
+```bash
+pss --verbose
+```
+
+```
+[ContentMerger] Meta tag 'viewport' already exists with same content, skipping injection
+[ContentMerger] Meta tag 'theme-color' content differs ('#000000' → '#ffffff'), will replace  
+[ContentMerger] Meta tag 'description' not found, will inject
+[ContentMerger] Merge complete - Title: set, Meta: 3 tags, Head: 0 chars, Body: 0 chars
+```
+
+### Universal Meta Tag Support
+
+PSS intelligently handles all meta tag types with a unified approach:
+
+- **Charset**: `<meta charset="utf-8" />`
+- **HTTP-Equiv**: `<meta http-equiv="refresh" content="30" />`
+- **Property**: `<meta property="og:title" content="..." />` (Open Graph, Twitter, etc.)
+- **Name**: `<meta name="description" content="..." />` (standard meta tags)
 
 ## 📁 Project Structure
 
@@ -166,8 +278,9 @@ pnpm ci
   - Exports: `loadConfig()`, `mergeConfigs()`, `validateConfig()`, `ConfigLoadResult`, `ConfigValidator`
 - **[@kevintyj/pss-server](./packages/server)** - Static file server functionality
   - Exports: `StaticServer`, `createStaticServer()`, `ServerOptions`, `ServerInfo`
-- **[@kevintyj/pss-browser](./packages/browser)** - Browser automation with Playwright
+- **[@kevintyj/pss-browser](./packages/browser)** - Browser automation with intelligent content merging
   - Exports: `BrowserManager`, `OriginalContentExtractor`, `ContentMerger`, `takeSnapshot()`, `BrowserOptions`, `SnapshotOptions`
+  - Features: Smart content comparison, universal meta tag parsing, priority-based merging
 - **[@kevintyj/pss-core](./packages/core)** - Core prerendering engine
   - Exports: `PrerenderEngine`, `prerender()` function
 - **[@kevintyj/pss-cli](./packages/cli)** - Command-line interface
@@ -232,8 +345,11 @@ PSS follows a modular architecture where each package has a single responsibilit
 - **Types** provide compile-time and runtime validation
 - **Config** handles loading from multiple sources
 - **Server** serves static files during prerendering
-- **Browser** manages Playwright for page snapshots
-- **Core** orchestrates the entire process
+- **Browser** manages Playwright and smart content merging
+  - Intelligent content comparison and deduplication
+  - Universal meta tag parsing and injection
+  - Priority-based content merging system
+- **Core** orchestrates the entire prerendering process
 - **CLI** provides the user interface
 - **PSS** (main package) re-exports everything and serves as the CLI entry point
 
@@ -268,6 +384,8 @@ PSS follows a modular architecture where each package has a single responsibilit
 - **Memory issues**: Reduce concurrency with `--concurrency 2`
 - **Timeout errors**: Increase timeout with `--timeout 60000`
 - **Sitemap issues**: Check sitemap.xml format and location
+- **Content not merging**: Use `--verbose` to see merging decisions and check your configuration
+- **Duplicate content**: Ensure `injectDefaults.original` is `false` when using static files
 
 ### Debug Commands
 
@@ -281,11 +399,14 @@ pnpm build
 # Test configuration
 pss --dry-run --verbose
 
-# Run with verbose logging
+# Debug content merging decisions
 pss --verbose
 
 # Test with longer timeout
 pss --timeout 60000 --verbose
+
+# Debug specific route with full logging
+pss --verbose --single-route /your-route
 ```
 
 ## 📄 License
@@ -300,4 +421,4 @@ See [TODO.md](./TODO.md) for planned features and improvements:
 - Performance optimizations
 - Better error reporting
 - Plugin system
-- Enhanced non-HTML outputs 
+- Enhanced non-HTML outputs

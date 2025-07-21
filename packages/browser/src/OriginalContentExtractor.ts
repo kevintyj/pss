@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { OriginalContent, OriginalContentSource } from '@kevintyj/pss-types';
+
 import type { Page } from 'playwright';
+
+import type { OriginalContent, OriginalContentSource } from '@kevintyj/pss-types';
 
 export class OriginalContentExtractor {
 	private contentCache = new Map<string, OriginalContent>();
@@ -14,6 +16,48 @@ export class OriginalContentExtractor {
 	private log(message: string): void {
 		if (this.verbose) {
 			console.log(`[OriginalContentExtractor] ${message}`);
+		}
+	}
+
+	/**
+	 * Get the original HTML content of a static file
+	 */
+	async getOriginalHtml(route: string, serveDir: string): Promise<string | null> {
+		this.log(`Getting original HTML for route: ${route}`);
+
+		try {
+			// First try to find the specific route file
+			const routeFilePath = this.getFilePathFromRoute(route, serveDir);
+			this.log(`Trying route-specific file: ${routeFilePath}`);
+
+			try {
+				const html = await readFile(routeFilePath, 'utf-8');
+				this.log(`Found route-specific file: ${routeFilePath}`);
+				return html;
+			} catch (routeError) {
+				// Route-specific file doesn't exist, try SPA fallback
+				if (route !== '/') {
+					this.log(`Route-specific file not found, trying SPA fallback to index.html`);
+					const indexPath = join(serveDir, 'index.html');
+
+					try {
+						const html = await readFile(indexPath, 'utf-8');
+						this.log(`Using SPA fallback: ${indexPath} for route: ${route}`);
+						return html;
+					} catch (indexError) {
+						this.log(`SPA fallback also failed: ${indexError}`);
+						throw new Error(
+							`Neither route-specific file (${routeFilePath}) nor SPA fallback (${indexPath}) could be read`
+						);
+					}
+				} else {
+					// For root route, don't try fallback - just throw the original error
+					throw routeError;
+				}
+			}
+		} catch (error) {
+			this.log(`Failed to read static HTML file for route ${route}: ${error}`);
+			return null;
 		}
 	}
 

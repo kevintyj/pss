@@ -1,6 +1,6 @@
 {
 	"name": "@kevintyj/pss-monorepo",
-	"version": "1.0.0",
+	"version": "0.0.0",
 	"description": "PSS (Prerendered Static Site Generator) - A fast, flexible prerendering tool",
 	"private": true,
 	"type": "module",

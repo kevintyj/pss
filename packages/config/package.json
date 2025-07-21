@@ -1,6 +1,6 @@
 {
 	"name": "@kevintyj/pss-config",
-	"version": "1.0.0",
+	"version": "0.0.0",
 	"description": "Configuration loading and validation for PSS",
 	"type": "module",
 	"main": "dist/index.js",
@@ -25,6 +25,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "^24.0.13",
+		"esbuild": "^0.25.6",
 		"tsx": "^4.20.3",
 		"typescript": "^5.8.3"
 	},
@@ -37,6 +38,11 @@
 		"configuration",
 		"validation"
 	],
-	"author": "",
-	"license": "BSD-3-Clause"
+	"author": "Kevin Taeyoon Jin <hello@kevintyj.com>",
+	"license": "BSD-3-Clause",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/kevintyj/pss",
+		"directory": "packages/config"
+	}
 }

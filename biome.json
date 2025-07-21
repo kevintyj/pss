@@ -63,7 +63,22 @@
 		"enabled": true,
 		"actions": {
 			"source": {
-				"organizeImports": "on"
+				"organizeImports": {
+					"level": "on",
+					"options": {
+						"groups": [
+							[":BUN:", ":NODE:"],
+							":BLANK_LINE:",
+							[":PACKAGE:", "!@kevintyj/**", ":URL:"],
+							":BLANK_LINE:",
+							[":ALIAS:", "!@kevintyj/**"],
+							":BLANK_LINE:",
+							["**", "!@kevintyj/**"],
+							":BLANK_LINE:",
+							"@kevintyj/**"
+						]
+					}
+				}
 			}
 		}
 	}

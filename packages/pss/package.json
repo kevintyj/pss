@@ -1,6 +1,6 @@
 {
 	"name": "@kevintyj/pss",
-	"version": "1.0.0",
+	"version": "0.0.0",
 	"description": "Prerendered Static Site Generator",
 	"type": "module",
 	"main": "dist/index.js",
@@ -9,6 +9,14 @@
 			"import": "./dist/index.js",
 			"types": "./dist/index.d.ts"
 		}
+	},
+	"publishConfig": {
+		"registry": "https://npm.pkg.github.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/kevintyj/pss",
+		"directory": "packages/pss"
 	},
 	"scripts": {
 		"build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --external:@kevintyj/pss-types --external:@kevintyj/pss-config --external:@kevintyj/pss-browser --external:@kevintyj/pss-server --external:@kevintyj/pss-core --external:@kevintyj/pss-cli && npm run build:types",
@@ -30,6 +38,7 @@
 		"@types/node": "^24.0.13",
 		"@types/serve-static": "^1.15.8",
 		"@types/yargs": "^17.0.33",
+		"esbuild": "^0.25.6",
 		"tsx": "^4.20.3",
 		"typescript": "^5.8.3"
 	},
@@ -44,6 +53,6 @@
 		"html",
 		"generator"
 	],
-	"author": "",
+	"author": "Kevin Taeyoon Jin <hello@kevintyj.com>",
 	"license": "BSD-3-Clause"
 }

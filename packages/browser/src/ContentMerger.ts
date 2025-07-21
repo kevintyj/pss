@@ -140,8 +140,26 @@ export class ContentMerger {
 
 		// Priority: original → extracted → static
 		if (shouldInjectOriginal && originalContent.head) {
-			headParts.push(originalContent.head);
-			this.log(`Added original head content (${originalContent.head.length} chars)`);
+			// Filter out meta tags and titles from original head content if they're configured as original: false
+			let filteredHeadContent = originalContent.head;
+
+			// Check if meta tags should be excluded from original content
+			const metaConfig = injectConfig.meta;
+			const shouldExcludeMeta = metaConfig?.original === false;
+
+			// Check if title should be excluded from original content
+			const titleConfig = injectConfig.title;
+			const shouldExcludeTitle = titleConfig?.original === false;
+
+			if (shouldExcludeMeta || shouldExcludeTitle) {
+				filteredHeadContent = this.filterHeadContent(originalContent.head, shouldExcludeMeta, shouldExcludeTitle);
+				this.log(
+					`Filtered original head content (excluded meta: ${shouldExcludeMeta}, excluded title: ${shouldExcludeTitle})`
+				);
+			}
+
+			headParts.push(filteredHeadContent);
+			this.log(`Added original head content (${filteredHeadContent.length} chars)`);
 		}
 
 		if (shouldInjectExtracted && extractedContent.head) {
@@ -242,24 +260,122 @@ export class ContentMerger {
 	 * Inject meta tags into HTML
 	 */
 	private injectMetaTags(html: string, metaTags: Record<string, string>): string {
-		// Generate meta tag HTML
-		const metaTagsHtml = Object.entries(metaTags)
-			.map(([name, content]) => {
-				// Handle different meta tag types
-				if (name.startsWith('og:') || name.startsWith('twitter:') || name.startsWith('fb:')) {
-					return `<meta property="${name}" content="${this.escapeHtml(content)}" />`;
-				} else if (name === 'charset') {
-					return `<meta charset="${this.escapeHtml(content)}" />`;
-				} else if (name.startsWith('http-equiv:')) {
-					const httpEquiv = name.replace('http-equiv:', '');
-					return `<meta http-equiv="${httpEquiv}" content="${this.escapeHtml(content)}" />`;
-				} else {
-					return `<meta name="${name}" content="${this.escapeHtml(content)}" />`;
-				}
-			})
-			.join('\n    ');
+		let modifiedHtml = html;
+		const tagsToInject: Array<{ key: string; content: string }> = [];
 
-		return this.injectIntoHead(html, metaTagsHtml);
+		// Compare existing meta tags with what we're about to inject
+		Object.entries(metaTags).forEach(([key, content]) => {
+			const existingContent = this.getExistingMetaContent(html, key);
+
+			if (existingContent === null) {
+				// Meta tag doesn't exist, we need to inject it
+				tagsToInject.push({ key, content });
+				this.log(`Meta tag '${key}' not found, will inject`);
+			} else if (existingContent !== content) {
+				// Meta tag exists but with different content, remove old and inject new
+				modifiedHtml = this.removeExistingMetaTag(modifiedHtml, key);
+				tagsToInject.push({ key, content });
+				this.log(`Meta tag '${key}' content differs ('${existingContent}' → '${content}'), will replace`);
+			} else {
+				// Meta tag exists with same content, skip injection
+				this.log(`Meta tag '${key}' already exists with same content, skipping injection`);
+			}
+		});
+
+		// Only inject tags that are actually needed
+		if (tagsToInject.length > 0) {
+			const metaTagsHtml = tagsToInject.map(({ key, content }) => this.generateMetaTag(key, content)).join('\n    ');
+
+			return this.injectIntoHead(modifiedHtml, metaTagsHtml);
+		}
+
+		return modifiedHtml;
+	}
+
+	/**
+	 * Generate a meta tag HTML string based on the key type
+	 */
+	private generateMetaTag(key: string, content: string): string {
+		const escapedContent = this.escapeHtml(content);
+
+		if (key === 'charset') {
+			return `<meta charset="${escapedContent}" />`;
+		} else if (key.startsWith('http-equiv:')) {
+			const httpEquiv = key.replace('http-equiv:', '');
+			return `<meta http-equiv="${httpEquiv}" content="${escapedContent}" />`;
+		} else if (key.startsWith('og:') || key.startsWith('twitter:') || key.startsWith('fb:')) {
+			return `<meta property="${key}" content="${escapedContent}" />`;
+		} else {
+			return `<meta name="${key}" content="${escapedContent}" />`;
+		}
+	}
+
+	/**
+	 * Get the content of an existing meta tag in HTML
+	 */
+	private getExistingMetaContent(html: string, key: string): string | null {
+		// Find all meta tags in the HTML
+		const metaTagRegex = /<meta\s+[^>]*\/?>/gi;
+		const matches = html.match(metaTagRegex);
+
+		if (!matches) {
+			return null;
+		}
+
+		// Parse each meta tag to find matching key
+		for (const metaTag of matches) {
+			const parsedMeta = this.parseMetaTag(metaTag);
+			if (parsedMeta && parsedMeta.key === key) {
+				return parsedMeta.content;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Parse a meta tag string and extract key and content
+	 */
+	private parseMetaTag(metaTagHtml: string): { key: string; content: string } | null {
+		// Extract charset meta tags
+		const charsetMatch = metaTagHtml.match(/charset=["']([^"']*?)["']/i);
+		if (charsetMatch) {
+			return { key: 'charset', content: charsetMatch[1] };
+		}
+
+		// Extract http-equiv meta tags
+		const httpEquivMatch = metaTagHtml.match(/http-equiv=["']([^"']*?)["'][^>]*content=["']([^"']*?)["']/i);
+		if (httpEquivMatch) {
+			return { key: `http-equiv:${httpEquivMatch[1]}`, content: httpEquivMatch[2] };
+		}
+
+		// Extract property-based meta tags (og:, twitter:, etc.)
+		const propertyMatch = metaTagHtml.match(/property=["']([^"']*?)["'][^>]*content=["']([^"']*?)["']/i);
+		if (propertyMatch) {
+			return { key: propertyMatch[1], content: propertyMatch[2] };
+		}
+
+		// Extract name-based meta tags
+		const nameMatch = metaTagHtml.match(/name=["']([^"']*?)["'][^>]*content=["']([^"']*?)["']/i);
+		if (nameMatch) {
+			return { key: nameMatch[1], content: nameMatch[2] };
+		}
+
+		return null;
+	}
+
+	/**
+	 * Remove a specific meta tag from HTML
+	 */
+	private removeExistingMetaTag(html: string, key: string): string {
+		// Find all meta tags and rebuild HTML without the matching one
+		const metaTagRegex = /<meta\s+[^>]*\/?>\s*/gi;
+
+		return html.replace(metaTagRegex, match => {
+			const parsedMeta = this.parseMetaTag(match);
+			// If this meta tag matches our key, remove it (return empty string)
+			return parsedMeta && parsedMeta.key === key ? '' : match;
+		});
 	}
 
 	/**
@@ -325,5 +441,24 @@ export class ContentMerger {
 			"'": '&#39;',
 		};
 		return text.replace(/[&<>"']/g, match => htmlEscapes[match]);
+	}
+
+	/**
+	 * Filter out meta tags and/or title tags from head content
+	 */
+	private filterHeadContent(headContent: string, excludeMeta: boolean, excludeTitle: boolean): string {
+		let filteredContent = headContent;
+
+		if (excludeMeta) {
+			// Remove all meta tags (handle both self-closing and non-self-closing)
+			filteredContent = filteredContent.replace(/<meta\s+[^>]*\/?>\s*/gi, '');
+		}
+
+		if (excludeTitle) {
+			// Remove title tags
+			filteredContent = filteredContent.replace(/<title\s*[^>]*>.*?<\/title>\s*/gi, '');
+		}
+
+		return filteredContent;
 	}
 }

@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
 import { type PSSConfig, PSSConfigSchema } from '@kevintyj/pss-types';
 
 const CONFIG_FILES = [
@@ -160,7 +161,7 @@ export function mergeConfigs(baseConfig: Partial<PSSConfig>, overrideConfig: Par
 				merged.author = { ...merged.author, ...value };
 			} else {
 				// Direct override
-				(merged as any)[key] = value;
+				(merged as Record<string, any>)[key] = value;
 			}
 		}
 	}

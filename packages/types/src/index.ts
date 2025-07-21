@@ -1,18 +1,31 @@
 import { z } from 'zod';
 
-// Strip mode options
+/**
+ * HTML content stripping options for prerendering
+ */
 export type StripOption = 'meta' | 'title' | 'head' | 'body' | 'head-except-title' | 'dynamic-content';
 
 export const StripOptionSchema = z.enum(['meta', 'title', 'head', 'body', 'head-except-title', 'dynamic-content']);
 
+/**
+ * Browser wait strategies for page loading
+ */
 export type WaitUntil = 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
 
 export const WaitUntilSchema = z.enum(['load', 'domcontentloaded', 'networkidle', 'commit']);
 
-// Original content source options
+/**
+ * Source for extracting original content before JavaScript execution
+ */
 export type OriginalContentSource = 'static-file' | 'pre-javascript';
 
+/**
+ * Target for content injection - whether to inject into rendered HTML or static file
+ */
+export type InjectionTarget = 'rendered' | 'static';
+
 export const OriginalContentSourceSchema = z.enum(['static-file', 'pre-javascript']);
+export const InjectionTargetSchema = z.enum(['rendered', 'static']);
 
 // Content source configuration for each content type
 export const ContentSourceSchema = z.object({
@@ -81,11 +94,6 @@ export const RouteConfigSchema = z.object({
 
 export type RouteConfig = z.infer<typeof RouteConfigSchema>;
 
-// Legacy type aliases for backward compatibility (will be removed)
-export type MetaInject = Record<string, string>;
-export type HeadInject = string;
-export type BodyInject = string;
-
 export const PSSConfigSchema = z.object({
 	serveDir: z.string().default('dist'),
 	outDir: z.string().default('prerendered'),
@@ -110,6 +118,9 @@ export const PSSConfigSchema = z.object({
 
 	// Original content extraction configuration
 	originalContentSource: OriginalContentSourceSchema.default('static-file'),
+
+	// Content injection target configuration
+	injectionTarget: InjectionTargetSchema.default('rendered'),
 
 	// Performance optimizations
 	optimizeExtraction: z.boolean().default(true),
@@ -152,6 +163,9 @@ export const PSSConfigSchema = z.object({
 
 export type PSSConfig = z.infer<typeof PSSConfigSchema>;
 
+/**
+ * Result of taking a snapshot of a webpage
+ */
 export interface SnapshotResult {
 	url: string;
 	html: string;
@@ -161,7 +175,9 @@ export interface SnapshotResult {
 	timestamp: number;
 }
 
-// Interface for extracted content data
+/**
+ * Content extracted from a webpage after JavaScript execution
+ */
 export interface ExtractedContent {
 	title?: string;
 	meta: Record<string, string>;
@@ -169,7 +185,9 @@ export interface ExtractedContent {
 	body?: string;
 }
 
-// Interface for original content data
+/**
+ * Original content from static files or pre-JavaScript page state
+ */
 export interface OriginalContent {
 	title?: string;
 	meta: Record<string, string>;
@@ -177,6 +195,9 @@ export interface OriginalContent {
 	body?: string;
 }
 
+/**
+ * Result of crawling and prerendering a website
+ */
 export interface CrawlResult {
 	snapshots: SnapshotResult[];
 	brokenLinks: Array<{

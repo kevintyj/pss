@@ -1,15 +1,19 @@
+import { type Browser, type BrowserContext, chromium, type Page, type Response } from 'playwright';
+
+import { ContentMerger } from './ContentMerger';
+import { OriginalContentExtractor } from './OriginalContentExtractor';
+
 import type {
 	ContentInject,
 	ExtractedContent,
 	InjectDefaults,
+	InjectionTarget,
 	OriginalContent,
+	OriginalContentSource,
 	SnapshotResult,
 	StripOption,
 	WaitUntil,
 } from '@kevintyj/pss-types';
-import { type Browser, type BrowserContext, chromium, type Page, type Response } from 'playwright';
-import { ContentMerger } from './ContentMerger';
-import { OriginalContentExtractor } from './OriginalContentExtractor';
 
 export interface BrowserOptions {
 	headless?: boolean;
@@ -42,7 +46,8 @@ export interface SnapshotOptions {
 	// Original content extraction
 	serveDir?: string;
 	route?: string;
-	originalContentSource?: 'static-file' | 'pre-javascript';
+	originalContentSource?: OriginalContentSource;
+	injectionTarget?: InjectionTarget;
 	cacheOriginalContent?: boolean;
 	optimizeExtraction?: boolean;
 
@@ -142,6 +147,7 @@ export class BrowserManager {
 			serveDir = '',
 			route = '',
 			originalContentSource = 'static-file',
+			injectionTarget = 'rendered',
 			cacheOriginalContent = true,
 			verbose = this.verbose,
 		} = options;
@@ -166,6 +172,7 @@ export class BrowserManager {
 					serveDir,
 					route,
 					originalContentSource,
+					injectionTarget,
 					cacheOriginalContent,
 					verbose
 				);
@@ -199,7 +206,8 @@ export class BrowserManager {
 		inject: ContentInject,
 		serveDir: string,
 		route: string,
-		originalContentSource: 'static-file' | 'pre-javascript',
+		originalContentSource: OriginalContentSource,
+		injectionTarget: InjectionTarget,
 		cacheOriginalContent: boolean,
 		isVerbose: boolean
 	): Promise<SnapshotResult> {
@@ -246,7 +254,9 @@ export class BrowserManager {
 			// Navigate to the page
 			this.log(`📸 Taking snapshot: ${url}`);
 			if (isVerbose) {
-				this.verboseLog(`Snapshot config: strip=${JSON.stringify(strip)}, extraDelay=${extraDelay}`);
+				this.verboseLog(
+					`Snapshot config: strip=${JSON.stringify(strip)}, extraDelay=${extraDelay}, injectionTarget=${injectionTarget}`
+				);
 			}
 
 			response = await page.goto(url, {
@@ -286,9 +296,33 @@ export class BrowserManager {
 				this.verboseLog(`Extracted content: ${JSON.stringify(extractedContent, null, 2)}`);
 			}
 
-			let html = await page.content();
-			if (isVerbose) {
-				this.verboseLog(`Original HTML length: ${html.length} characters`);
+			// Choose base HTML based on injection target
+			let html: string;
+			if (injectionTarget === 'static') {
+				// For static injection, we need to read the original static file and use it as base
+				// instead of reconstructing HTML from extracted parts
+				try {
+					const originalHtml = await this.originalContentExtractor.getOriginalHtml(route, serveDir);
+					if (!originalHtml) {
+						throw new Error(`Failed to read original static file for route: ${route}`);
+					}
+					html = originalHtml;
+
+					if (isVerbose) {
+						this.verboseLog(`Using original static file as base HTML (${html.length} characters)`);
+					}
+				} catch (error) {
+					throw new Error(
+						`Static injection target requires original static file to be readable. ` +
+							`Failed to read static file for route: ${route}. Error: ${error}`
+					);
+				}
+			} else {
+				// Use rendered HTML as base (default behavior)
+				html = await page.content();
+				if (isVerbose) {
+					this.verboseLog(`Using rendered HTML as base (${html.length} characters)`);
+				}
 			}
 
 			// Apply strip modes
@@ -371,8 +405,14 @@ export class BrowserManager {
 	private applyStripMode(html: string, stripMode: StripOption): string {
 		switch (stripMode) {
 			case 'meta':
-				// Remove meta tags but keep title and essential tags
-				return html.replace(/<meta(?!\s+(?:charset|name="viewport"|http-equiv="Content-Type"))[^>]*>/gi, '');
+				// Remove all meta tags except essential ones (charset, viewport)
+				return html.replace(/<meta\s+[^>]*>/gi, match => {
+					// Keep essential meta tags
+					if (match.includes('charset=') || match.includes('name="viewport"') || match.includes("name='viewport'")) {
+						return match;
+					}
+					return '';
+				});
 
 			case 'title':
 				// Remove title tags

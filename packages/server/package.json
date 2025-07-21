@@ -1,6 +1,6 @@
 {
 	"name": "@kevintyj/pss-server",
-	"version": "1.0.0",
+	"version": "0.0.0",
 	"description": "Static file server for PSS",
 	"type": "module",
 	"main": "dist/index.js",
@@ -13,7 +13,7 @@
 	},
 	"scripts": {
 		"build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --external:get-port --external:serve-static --external:@kevintyj/pss-types && npm run build:types",
-		"build:types": "tsc src/index.ts --declaration --emitDeclarationOnly --outDir dist --moduleResolution node --esModuleInterop --skipLibCheck",
+		"build:types": "tsc --emitDeclarationOnly",
 		"dev": "tsx src/index.ts",
 		"format": "biome format --write .",
 		"lint": "biome lint .",
@@ -27,6 +27,7 @@
 	"devDependencies": {
 		"@types/node": "^24.0.13",
 		"@types/serve-static": "^1.15.8",
+		"esbuild": "^0.25.6",
 		"tsx": "^4.20.3",
 		"typescript": "^5.8.3"
 	},
@@ -39,6 +40,11 @@
 		"static",
 		"http"
 	],
-	"author": "",
-	"license": "BSD-3-Clause"
+	"author": "Kevin Taeyoon Jin <hello@kevintyj.com>",
+	"license": "BSD-3-Clause",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/kevintyj/pss",
+		"directory": "packages/server"
+	}
 }

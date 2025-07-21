@@ -1,6 +1,6 @@
 {
 	"name": "@kevintyj/pss-cli",
-	"version": "1.0.0",
+	"version": "0.0.0",
 	"description": "Prerendered Static Site Generator - Fast, flexible prerendering tool with CLI",
 	"type": "module",
 	"main": "dist/index.js",
@@ -32,6 +32,7 @@
 	"devDependencies": {
 		"@types/node": "^24.0.13",
 		"@types/yargs": "^17.0.33",
+		"esbuild": "^0.25.6",
 		"tsx": "^4.20.3",
 		"typescript": "^5.8.3"
 	},
@@ -48,6 +49,11 @@
 		"cli",
 		"command-line"
 	],
-	"author": "",
-	"license": "BSD-3-Clause"
+	"author": "Kevin Taeyoon Jin <hello@kevintyj.com>",
+	"license": "BSD-3-Clause",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/kevintyj/pss",
+		"directory": "packages/cli"
+	}
 }

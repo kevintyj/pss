@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
+
 import getPort from 'get-port';
 import serveStatic from 'serve-static';
 
@@ -52,7 +53,7 @@ export class StaticServer {
 		const serve = serveStatic(this.options.serveDir, {
 			index: ['index.html'],
 			fallthrough: true, // Enable fallthrough for SPA routing
-			setHeaders: (res: any, path: any) => {
+			setHeaders: (res: ServerResponse, path: string) => {
 				// Set proper headers for static files
 				if (path.endsWith('.html')) {
 					res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -70,7 +71,7 @@ export class StaticServer {
 				this.verboseLog(`Request: ${req.method} ${req.url}`);
 			}
 
-			serve(req, res, (err: any) => {
+			serve(req, res, (err?: Error) => {
 				if (err) {
 					console.error(`Server error for ${req.url}:`, err);
 					this.verboseLog(`Server error details: ${err.message}`);
@@ -108,7 +109,7 @@ export class StaticServer {
 		};
 	}
 
-	private serveSpaFallback(req: any, res: any): void {
+	private serveSpaFallback(req: IncomingMessage, res: ServerResponse): void {
 		const url = req.url || '/';
 
 		// Skip API routes and files with extensions

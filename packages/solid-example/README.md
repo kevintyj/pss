@@ -1,36 +1,70 @@
-## Usage
+# PSS Solid.js Example
 
-Those templates dependencies are maintained via [pnpm](https://pnpm.io) via `pnpm up -Lri`.
+This is an example Solid.js application for testing PSS (Prerendered Static Site Generator) functionality.
 
-This is the reason you see a `pnpm-lock.yaml`. That being said, any package manager will work. This file can be safely be removed once you clone a template.
+## Purpose
+
+This example demonstrates how PSS can prerender a Solid.js application with:
+
+- **Static File Generation**: Convert dynamic routes to static HTML files
+- **Original Content Preservation**: Maintain hydration-ready structure
+- **Content Injection**: Add meta tags, head content, and other optimizations
+- **Route Discovery**: Automatic crawling of application routes
+
+## Getting Started
+
+### 1. Install Dependencies
 
 ```bash
-$ npm install # or pnpm install or yarn install
+pnpm install
 ```
 
-### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+### 2. Build the Application
 
-## Available Scripts
+```bash
+pnpm run build
+```
 
-In the project directory, you can run:
+### 3. Test PSS Prerendering
 
-### `npm run dev` or `npm start`
+From the project root, run:
 
-Runs the app in the development mode.<br>
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+```bash
+# Basic prerendering
+pnpm dev
 
-The page will reload if you make edits.<br>
+# Or with custom configuration
+pss --serve-dir packages/solid-example/dist --out-dir packages/solid-example/prerendered --verbose
+```
 
-### `npm run build`
+## Configuration
 
-Builds the app for production to the `dist` folder.<br>
-It correctly bundles Solid in production mode and optimizes the build for the best performance.
+The example includes a `pss.config.js` file with optimized settings:
 
-The build is minified and the filenames include the hashes.<br>
-Your app is ready to be deployed!
+- **Static File Source**: Uses built files from `dist/` directory
+- **Original Content**: Preserves hydration structure
+- **Content Injection**: Adds meta tags and optimizations
+- **Strip Configuration**: Removes unnecessary content for optimization
 
-## Deployment
+## Development
 
-You can deploy the `dist` folder to any static host provider (netlify, surge, now, etc.)
+### Available Scripts
 
-## This project was created with the [Solid CLI](https://github.com/solidjs-community/solid-cli)
+- `pnpm dev` - Start development server
+- `pnpm build` - Build for production
+- `pnpm preview` - Preview production build
+
+### Testing with PSS
+
+This example is used by the PSS development team to test:
+
+- Different rendering scenarios
+- Content injection capabilities
+- Route discovery mechanisms
+- Performance optimizations
+
+## Learn More
+
+- [PSS Documentation](../../README.md)
+- [Solid.js Website](https://solidjs.com)
+- [Solid.js Discord](https://discord.com/invite/solidjs)
